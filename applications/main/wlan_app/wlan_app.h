@@ -242,6 +242,12 @@ struct WlanApp {
  *  by the live-creds scene on enter. */
 WlanCredSniff* wlan_app_ensure_cred_sniff(WlanApp* app);
 
+/* Free / restore the feature views not used during the Evil Portal, to reclaim
+ * ~10-15 KB internal RAM for the SoftAP + httpd + DNS on this no-PSRAM board.
+ * Call _free before starting the portal and _restore when the portal exits. */
+void wlan_app_portal_views_free(WlanApp* app);
+void wlan_app_portal_views_restore(WlanApp* app);
+
 /** Schlüssel der aktuellen Picker-Assoziation: Channel-Key im Channel-Mode,
  *  sonst SSID des Targets/Connected-AP (oder leerer String). */
 static inline void wlan_app_picker_current_key(const WlanApp* app, char* out, size_t sz) {

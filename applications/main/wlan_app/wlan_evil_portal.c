@@ -557,7 +557,12 @@ static void http_close_cb(httpd_handle_t hd, int sockfd) {
 static bool start_http(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 8;
+    // Needs ~17 (captive-portal OS-probe endpoints: Android /generate_204, Apple
+    // /hotspot-detect.html, Windows /connecttest.txt + NCSI, favicon, wildcard,
+    // POST, etc.). 8 was too few ("no slots left") so OS captive detection never
+    // fired and phones didn't pop the sign-in page. Each slot is tiny; the
+    // portal view-freeing left plenty of heap.
+    config.max_uri_handlers = 20;
     // No-PSRAM board: LWIP_MAX_SOCKETS is small (see sdkconfig) and internal heap
     // is ~7 KB free at this point, so we cannot afford 13 sockets (that also
     // exceeds the LWIP budget → httpd_start ESP_ERR_INVALID_ARG). 4 open sockets
@@ -1343,13 +1348,11 @@ void wlan_hal_evil_portal_stop(void) {
     }
     wlan_hal_run_in_worker(evil_portal_stop_worker, NULL);
 
-    if(s_bt_was_on) {
-        ESP_LOGI(TAG, "stop: restoring BLE stack");
-        Bt* bt = furi_record_open(RECORD_BT);
-        bt_start_stack(bt);
-        furi_record_close(RECORD_BT);
-        s_bt_was_on = false;
-    }
+    /* Do NOT restore Bluetooth here. Leaving the portal must return ALL SRAM
+     * immediately and reserve nothing for BT — the WiFi app fully released the
+     * BLE controller (mem_release) at entry, so bringing it back would both go
+     * against that and fail. Bluetooth returns only after a reboot. */
+    s_bt_was_on = false;
 }
 
 bool wlan_hal_evil_portal_is_running(void) {

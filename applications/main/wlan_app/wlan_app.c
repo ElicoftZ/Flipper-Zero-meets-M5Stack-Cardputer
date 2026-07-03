@@ -250,8 +250,86 @@ static void wlan_app_free(WlanApp* app) {
     free(app);
 }
 
+/* --- Evil Portal RAM headroom -------------------------------------------------
+ * The portal (SoftAP + httpd + DNS) needs ~10-15 KB more internal RAM than the
+ * fully-loaded WiFi app leaves free on this no-PSRAM board. These free the
+ * feature views NOT used while the portal runs, and restore them on portal exit
+ * before the user can navigate back to those features. Keep this list in sync
+ * with wlan_app_alloc()/wlan_app_free(). */
+void wlan_app_portal_views_free(WlanApp* app) {
+    if(!app->view_lan) return; // already freed
+
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewLan);
+    wlan_lan_view_free(app->view_lan);
+    app->view_lan = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewConnect);
+    wlan_connect_view_free(app->view_connect);
+    app->view_connect = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewPortscan);
+    wlan_portscan_view_free(app->view_portscan);
+    app->view_portscan = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewHandshake);
+    wlan_handshake_view_free(app->view_handshake);
+    app->view_handshake = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewHandshakeChannel);
+    wlan_handshake_channel_view_free(app->view_handshake_channel);
+    app->view_handshake_channel = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewDeauther);
+    wlan_deauther_view_free(app->view_deauther);
+    app->view_deauther = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewSniffer);
+    wlan_sniffer_view_free(app->sniffer_view_obj);
+    app->sniffer_view_obj = NULL;
+    app->view_sniffer = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewLiveCreds);
+    wlan_live_creds_view_free(app->live_creds_view_obj);
+    app->live_creds_view_obj = NULL;
+    app->view_live_creds = NULL;
+    view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewSdUpdate);
+    wlan_sd_update_view_free(app->view_sd_update);
+    app->view_sd_update = NULL;
+}
+
+void wlan_app_portal_views_restore(WlanApp* app) {
+    if(app->view_lan) return; // already present
+
+    app->view_lan = wlan_lan_view_alloc();
+    wlan_lan_view_set_view_dispatcher(app->view_lan, app->view_dispatcher);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewLan, app->view_lan);
+    app->view_connect = wlan_connect_view_alloc();
+    wlan_connect_view_set_view_dispatcher(app->view_connect, app->view_dispatcher);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewConnect, app->view_connect);
+    app->view_portscan = wlan_portscan_view_alloc();
+    view_set_context(app->view_portscan, app->view_dispatcher);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewPortscan, app->view_portscan);
+    app->view_handshake = wlan_handshake_view_alloc();
+    view_set_context(app->view_handshake, app->view_dispatcher);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewHandshake, app->view_handshake);
+    app->view_handshake_channel = wlan_handshake_channel_view_alloc();
+    view_set_context(app->view_handshake_channel, app->view_dispatcher);
+    view_dispatcher_add_view(
+        app->view_dispatcher, WlanAppViewHandshakeChannel, app->view_handshake_channel);
+    app->view_deauther = wlan_deauther_view_alloc();
+    view_set_context(app->view_deauther, app->view_dispatcher);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewDeauther, app->view_deauther);
+    app->sniffer_view_obj = wlan_sniffer_view_alloc();
+    app->view_sniffer = wlan_sniffer_view_get_view(app->sniffer_view_obj);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewSniffer, app->view_sniffer);
+    app->live_creds_view_obj = wlan_live_creds_view_alloc();
+    app->view_live_creds = wlan_live_creds_view_get_view(app->live_creds_view_obj);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewLiveCreds, app->view_live_creds);
+    app->view_sd_update = wlan_sd_update_view_alloc();
+    view_set_context(app->view_sd_update, app->view_dispatcher);
+    view_dispatcher_add_view(app->view_dispatcher, WlanAppViewSdUpdate, app->view_sd_update);
+}
+
 int32_t wlan_app(void* args) {
     UNUSED(args);
+
+    /* Fully release Bluetooth FIRST (reclaims ~64 KB incl. the deinit residual)
+     * so the free-RAM gate below passes even right after Bluetooth was used —
+     * this is the "using WiFi shuts Bluetooth down fully" behaviour. */
+    wlan_hal_release_bt();
 
     /* Bail cleanly if the heap is too depleted to allocate the app safely
      * (e.g. right after a radio app like BLE Spam leaked memory) — otherwise a

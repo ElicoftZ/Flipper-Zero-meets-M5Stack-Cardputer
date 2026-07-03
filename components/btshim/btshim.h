@@ -112,6 +112,13 @@ void bt_stop_stack(Bt* bt);
 /** Restart BLE stack (blocking). Only starts if BT is enabled in settings. */
 void bt_start_stack(Bt* bt);
 
+/** Latch set by the WiFi app after it esp_bt_controller_mem_release()'s the BLE
+ * controller to reclaim RAM. Once set, esp_bt_controller_init() would fault
+ * (the controller's memory is gone), so every BLE start path MUST check
+ * bt_is_mem_released() and refuse gracefully until the next reboot. */
+void bt_mark_mem_released(void);
+bool bt_is_mem_released(void);
+
 #ifdef __cplusplus
 }
 #endif

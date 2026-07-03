@@ -2,6 +2,7 @@
 #include <gui.h>
 #include <view_dispatcher.h>
 #include <widget.h>
+#include <boards/board.h>
 
 typedef struct {
     Gui* gui;
@@ -40,8 +41,8 @@ int32_t about_app(void* p) {
         AlignCenter,
         AlignTop,
         FontSecondary,
-        "Lily T-Embed\n"
-        "FW: 1.1.5 - Sor3nt Stuff");
+        BOARD_NAME "\n"
+        "FW: 1.14 - Elicoft");
 
     View* widget_view = widget_get_view(app->widget);
     view_set_previous_callback(widget_view, about_app_exit);

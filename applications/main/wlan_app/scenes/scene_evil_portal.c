@@ -325,9 +325,14 @@ void wlan_app_scene_evil_portal_on_enter(void* context) {
         .busy_cb_ctx = app,
     };
 
+    /* Reclaim ~10-15 KB by freeing feature views unused during the portal — the
+     * SoftAP + httpd + DNS need more internal RAM than the loaded app leaves. */
+    wlan_app_portal_views_free(app);
+
     if(!wlan_hal_evil_portal_start(&cfg)) {
         wlan_evil_portal_view_set_busy(
             app->evil_portal_view_obj, true, "Start failed");
+        wlan_app_portal_views_restore(app); // undo — portal never came up
         return;
     }
 
@@ -405,4 +410,8 @@ void wlan_app_scene_evil_portal_on_exit(void* context) {
         s_template_html = NULL;
     }
     wlan_evil_portal_view_set_busy(app->evil_portal_view_obj, false, NULL);
+
+    /* Portal is fully stopped now (AP + httpd + DNS freed), so there's RAM to
+     * re-create the feature views before the user navigates back to them. */
+    wlan_app_portal_views_restore(app);
 }

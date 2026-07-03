@@ -32,7 +32,14 @@
 #define FURI_HAL_POWER_LOW_BATTERY_THRESHOLD_V  (3.35f)
 #define FURI_HAL_POWER_EMPTY_BATTERY_VOLTAGE_V  (3.27f)
 #define FURI_HAL_POWER_FULL_BATTERY_VOLTAGE_V   (4.20f)
+/* The battery-sense voltage divider ratio is board-specific and MUST come from
+ * the board header (the Cardputer/Cardputer-ADV use 2.0). Only fall back to 3.0
+ * if a board didn't define it — previously this unconditional 3.0 overrode the
+ * board's 2.0 (redefine warning), reading Vbat 1.5x too high so the gauge sat
+ * near 100% regardless of real charge. */
+#ifndef FURI_HAL_POWER_ADC_DIVIDER_RATIO
 #define FURI_HAL_POWER_ADC_DIVIDER_RATIO        (3.0f)
+#endif
 #define FURI_HAL_POWER_SAMPLE_REFRESH_US        (250000LL)
 #define FURI_HAL_POWER_CHARGE_LIMIT_MIN_V       (3.840f)
 #define FURI_HAL_POWER_CHARGE_LIMIT_MAX_V       (4.208f)
@@ -247,6 +254,17 @@ static void furi_hal_power_refresh_sample(void) {
     } else if(supply_voltage > 6.0f) {
         supply_voltage = 6.0f;
     }
+
+    /* TEMP battery calibration: compare Vbat= against a multimeter reading on the
+     * battery to derive the correct divider ratio. raw/pin_mv let us sanity-check
+     * the ADC path independently of the ratio. */
+    ESP_LOGW(
+        TAG,
+        "BATT raw=%d pin_mv=%d ratio=%.2f -> Vbat=%.3f",
+        raw_value,
+        pin_mv,
+        (double)FURI_HAL_POWER_ADC_DIVIDER_RATIO,
+        (double)supply_voltage);
 
     furi_hal_power.last_supply_voltage = supply_voltage;
     if(!furi_hal_power_is_usb_present()) {

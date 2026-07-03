@@ -6,6 +6,8 @@
 #include <esp_event.h>
 #include <esp_log.h>
 #include <esp_heap_caps.h>
+#include <esp_bt.h>
+#include <esp_bt_main.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
@@ -338,15 +340,42 @@ static void wlan_send_cmd_sync(WlanCmd* cmd) {
     }
 }
 
+/* Fully release the BLE controller + Bluedroid so WiFi gets all their RAM back.
+ * On this no-PSRAM board the BT stack holds ~64 KB and its plain deinit leaves a
+ * ~13 KB residual that starves esp_wifi_init ("search fails after using
+ * Bluetooth"). We stop the btshim serial stack, then deinit + mem_release the
+ * controller. NOTE: after this BT cannot re-init until reboot — that is the
+ * intended "shut Bluetooth down fully for WiFi" behaviour; the two radios are
+ * mutually exclusive on this board. */
+void wlan_hal_release_bt(void) {
+    Bt* bt = furi_record_open(RECORD_BT);
+    bt_stop_stack(bt); // idempotent: no-op if the serial stack was never up
+    furi_record_close(RECORD_BT);
+    furi_delay_ms(50);
+
+    // Also covers a BLE app (Spam/Walk) that borrowed the controller directly.
+    esp_bt_controller_status_t st = esp_bt_controller_get_status();
+    if(st == ESP_BT_CONTROLLER_STATUS_ENABLED) {
+        esp_bt_controller_disable();
+        furi_delay_ms(20);
+        st = esp_bt_controller_get_status();
+    }
+    if(st == ESP_BT_CONTROLLER_STATUS_INITED) {
+        esp_bt_controller_deinit();
+        furi_delay_ms(20);
+    }
+    // Reclaim the controller's reserved RAM. Safe to call repeatedly.
+    esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
+    // Latch it: esp_bt_controller_init() now faults, so BLE apps must refuse to
+    // start (not crash) until the next reboot.
+    bt_mark_mem_released();
+}
+
 bool wlan_hal_start(void) {
     if(s_started) return true;
 
-    Bt* bt = furi_record_open(RECORD_BT);
-    s_bt_was_on = bt_is_enabled(bt);
-    if(s_bt_was_on) {
-        bt_stop_stack(bt);
-    }
-    furi_record_close(RECORD_BT);
+    wlan_hal_release_bt();
+    s_bt_was_on = false; // BT is fully released now; do not try to restore it
 
     if(!wlan_ensure_worker()) return false;
 

@@ -242,6 +242,13 @@ bool ble_walk_hal_start(void) {
         return true;
     }
 
+    // WiFi released the BLE controller's RAM this boot — esp_bt_controller_init()
+    // would fault. Refuse cleanly; the radio needs a reboot to come back.
+    if(bt_is_mem_released()) {
+        ESP_LOGE(TAG, "BLE controller RAM was released for WiFi; reboot to use BLE");
+        return false;
+    }
+
     ESP_LOGI(TAG, "Starting BLE Walk HAL...");
 
     Bt* bt = furi_record_open(RECORD_BT);

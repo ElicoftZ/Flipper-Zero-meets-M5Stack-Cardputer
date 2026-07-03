@@ -47,6 +47,16 @@
 
 #define TAG "BtSrv"
 
+/* WiFi mem-release latch (see btshim.h). Plain global: set from the WiFi app
+ * thread after esp_bt_controller_mem_release(), read from BLE app start paths. */
+static volatile bool s_bt_mem_released = false;
+void bt_mark_mem_released(void) {
+    s_bt_mem_released = true;
+}
+bool bt_is_mem_released(void) {
+    return s_bt_mem_released;
+}
+
 #define ICON_SPACER          2
 #define BT_DEFAULT_MTU       BLE_PROFILE_SERIAL_PACKET_SIZE_MAX
 
@@ -670,6 +680,14 @@ static void bt_handle_stop_stack(Bt* bt) {
 
 static void bt_handle_start_stack(Bt* bt) {
     FURI_LOG_I(TAG, "Starting BLE stack...");
+
+    /* WiFi released the BLE controller's RAM this boot — esp_bt_controller_init()
+     * would fault. Stay down until reboot. */
+    if(s_bt_mem_released) {
+        FURI_LOG_W(TAG, "BLE controller RAM released for WiFi; reboot to use BLE");
+        bt->status = BtStatusUnavailable;
+        return;
+    }
 
     /* Only bring the stack up if Bluetooth is actually enabled. On this no-PSRAM
      * board BT is off by default and the serial stack is not running at the

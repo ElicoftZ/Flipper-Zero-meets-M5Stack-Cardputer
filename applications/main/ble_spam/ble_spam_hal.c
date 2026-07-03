@@ -74,6 +74,9 @@ static void spam_gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_
 }
 
 bool ble_spam_hal_have_ram(void) {
+    /* WiFi released the BLE controller's RAM this boot — it cannot be re-inited
+     * until reboot. Report "no RAM" so the app gates off gracefully. */
+    if(bt_is_mem_released()) return false;
     /* If the btshim serial stack is currently up (Bluetooth enabled in
      * Settings), it is holding ~64 KB right now — but ble_spam_hal_start()
      * stops it first and reclaims that RAM before it needs it. So don't refuse
@@ -94,6 +97,13 @@ bool ble_spam_hal_start(void) {
     if(s_hal_started) {
         ESP_LOGI(TAG, "BLE spam HAL already started, reusing");
         return true;
+    }
+
+    // WiFi released the BLE controller's RAM this boot — esp_bt_controller_init()
+    // would fault. Refuse cleanly; the radio needs a reboot to come back.
+    if(bt_is_mem_released()) {
+        ESP_LOGE(TAG, "BLE controller RAM was released for WiFi; reboot to use BLE");
+        return false;
     }
 
     ESP_LOGI(TAG, "Starting BLE spam HAL...");

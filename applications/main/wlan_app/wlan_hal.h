@@ -14,6 +14,13 @@ void wlan_hal_stop(void);
 
 bool wlan_hal_is_started(void);
 
+/** Fully tear down + mem_release the BLE controller/Bluedroid to reclaim its
+ *  ~64 KB (incl. the ~13 KB deinit residual) for WiFi on this no-PSRAM board.
+ *  Call at WiFi-app entry so the free-RAM gate passes even after Bluetooth was
+ *  used. After this, Bluetooth needs a reboot to run again (radios are mutually
+ *  exclusive). Idempotent + safe if BT was never started. */
+void wlan_hal_release_bt(void);
+
 /** Stellt nur den WLAN-Worker-Task + Command-Queue sicher, ohne den WiFi-
  *  Stack zu initialisieren. Nötig, bevor wlan_hal_run_in_worker()/Evil-
  *  Portal aufgerufen werden, falls vorher kein wlan_hal_start() lief.
