@@ -218,6 +218,14 @@ void wlan_app_scene_live_creds_on_enter(void* context) {
         return;
     }
 
+    /* Bring up the ~15 KB credential sniffer now (deferred at app start so
+     * esp_wifi_init had room — see wlan_app.c). */
+    if(!wlan_app_ensure_cred_sniff(app)) {
+        lc_disarm_monitor(app);
+        lc_show_error(app, "Out of memory");
+        return;
+    }
+
     wlan_cred_sniff_set_armed(app->cred_sniff, true);
     if(app->mitm_inject_enabled) {
         // %%MY_IP%% im Template auflösen können — eigene STA-IP übergeben.

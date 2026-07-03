@@ -13,23 +13,14 @@ SELECTED_BOARD=""
 
 # Hardware Definitions
 declare -A TARGETS=(
-    ["esp32s3"]="esp32s3"
-    ["waveshare_c6"]="esp32c6"
-    ["t_embed"]="esp32s3"
     ["cardputer"]="esp32s3"
     ["cardputer_adv"]="esp32s3"
 )
 declare -A NAMES=(
-    ["esp32s3"]="esp32s3_generic"
-    ["waveshare_c6"]="waveshare_c6_1.9"
-    ["t_embed"]="lilygo_t_embed_cc1101"
     ["cardputer"]="m5stack_cardputer"
     ["cardputer_adv"]="m5stack_cardputer_adv"
 )
 declare -A DIRS=(
-    ["esp32s3"]="build_s3"
-    ["waveshare_c6"]="build_waveshare_c6"
-    ["t_embed"]="build_t_embed"
     ["cardputer"]="build_cardputer"
     ["cardputer_adv"]="build_cardputer_adv"
 )
@@ -37,7 +28,7 @@ declare -A DIRS=(
 usage() {
     cat <<EOF
 Usage: $(basename "$0") --board <name> [options]
-Boards: esp32s3, waveshare_c6, t_embed, cardputer, cardputer_adv
+Boards: cardputer, cardputer_adv
 Options: -p|--port, -m|--monitor, --build-only
 EOF
 }
@@ -145,3 +136,21 @@ if [[ "${BUILD_ONLY}" -eq 0 ]]; then
 fi
 
 idf.py "${PY_OPTS[@]}" "${COMMANDS[@]}"
+
+# Generate merged binary (bootloader + partition-table + app → single .bin)
+if [[ -f "${BUILD_DIR}/flasher_args.json" ]]; then
+    CHIP=$(python3 -c "import json; print(json.load(open('${BUILD_DIR}/flasher_args.json'))['extra_esptool_args']['chip'])")
+    FLASH_MODE=$(python3 -c "import json; print(json.load(open('${BUILD_DIR}/flasher_args.json'))['flash_settings']['flash_mode'])")
+    FLASH_SIZE=$(python3 -c "import json; print(json.load(open('${BUILD_DIR}/flasher_args.json'))['flash_settings']['flash_size'])")
+    MERGE_PARTS=$(python3 -c "
+import json
+info = json.load(open('${BUILD_DIR}/flasher_args.json'))
+for off, path in sorted(info['flash_files'].items(), key=lambda x: int(x[0], 16)):
+    print(f'{off} ${BUILD_DIR}/{path}')
+" | tr '\n' ' ')
+    MERGED_NAME="Flipper-${SELECTED_BOARD}-merged.bin"
+    esptool.py --chip "${CHIP}" merge_bin \
+        --flash_mode "${FLASH_MODE}" --flash_size "${FLASH_SIZE}" \
+        -o "${MERGED_NAME}" ${MERGE_PARTS}
+    echo "[merge] Created ${MERGED_NAME}"
+fi

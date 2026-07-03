@@ -70,7 +70,10 @@ CONFIG_ESP_WIFI_TASK_STACK_SIZE=2560
 # =============================================================================
 # LWIP Configuration (Reduced parameters for SRAM saving)
 # =============================================================================
-CONFIG_LWIP_MAX_SOCKETS=4
+# 4 was too few for the Evil Portal: DHCPS + tcpip use ~3 internally, leaving 1,
+# so httpd_start rejected its socket request (ESP_ERR_INVALID_ARG). 8 leaves room
+# for a small httpd (4) + the DNS-hijack socket. Each extra socket is cheap.
+CONFIG_LWIP_MAX_SOCKETS=8
 CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=8
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=4
 CONFIG_LWIP_TCP_MSS=1436

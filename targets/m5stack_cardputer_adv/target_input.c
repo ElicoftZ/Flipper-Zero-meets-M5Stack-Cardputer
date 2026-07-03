@@ -39,14 +39,10 @@
 
 #define TAG "InputCardputerAdv"
 
-/* The base Flipper input system carries only navigation events; its InputType
- * enum has no InputTypeText. This driver keeps an ASCII text-key path (for a
- * future text channel), but it is inert here because text_pubsub is always
- * NULL. Alias the type to a valid enum value so the unreachable branch still
- * compiles against the nav-only base. */
-#ifndef InputTypeText
-#define InputTypeText InputTypeMAX
-#endif
+/* InputTypeText is now a real value in the base InputType enum (input.h): the
+ * ADV physical keyboard publishes printable characters as InputTypeText events
+ * (ASCII in InputEvent.key) on the same pubsub as nav events. gui_input()
+ * special-cases them and routes to the focused view; text_input consumes them. */
 
 /* ---- Timing ---- */
 #define INPUT_LONG_PRESS_MS     500U
@@ -393,7 +389,7 @@ static void publish_nav(
     uint32_t    sequence)
 {
     InputEvent event = {
-        .sequence_source  = INPUT_SEQUENCE_SOURCE_HARDWARE,
+        .sequence_source  = INPUT_SEQUENCE_SOURCE_KEYBOARD,
         .sequence_counter = sequence,
         .key              = key,
         .type             = type,
@@ -466,12 +462,33 @@ static esp_err_t kb_i2c_install(void) {
  * Public interface
  * ========================================================================= */
 
+/* TEMP DIAGNOSTIC: probe every address on the keyboard I2C bus and log which
+ * ACK. Used to locate the ES8311 audio codec (expected 0x18) and BMI270 (0x68)
+ * so the speaker driver can address the codec. Remove once audio is wired up. */
+static void kb_i2c_scan(void) {
+    ESP_LOGW(TAG, "I2C scan on GPIO%d/GPIO%d (port %d):", KB_PIN_SDA, KB_PIN_SCL, KB_I2C_PORT);
+    for(uint8_t addr = 0x08; addr < 0x78; addr++) {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_stop(cmd);
+        esp_err_t ret = i2c_master_cmd_begin(KB_I2C_PORT, cmd, pdMS_TO_TICKS(20));
+        i2c_cmd_link_delete(cmd);
+        if(ret == ESP_OK) {
+            ESP_LOGW(TAG, "  I2C device found at 0x%02X", addr);
+        }
+    }
+    ESP_LOGW(TAG, "I2C scan done");
+}
+
 void target_input_init(void) {
     /* --- I²C master bus for the TCA8418 (legacy driver, self-contained) --- */
     if(kb_i2c_install() != ESP_OK) {
         ESP_LOGE(TAG, "Keyboard I2C bus init failed");
         return;
     }
+
+    kb_i2c_scan();
 
     /* --- Initialise TCA8418 --- */
     esp_err_t ret = tca8418_hw_init();
@@ -504,7 +521,7 @@ void target_input_poll(
     FuriPubSub* pubsub,
     uint32_t*   sequence_counter)
 {
-    FuriPubSub* text_pubsub = NULL; // Flipper OS doesn't use text_pubsub yet natively
+    FuriPubSub* text_pubsub = pubsub; // publish typed chars on the same channel the GUI listens to
     uint32_t now              = furi_get_tick();
     uint32_t long_press_ticks = furi_ms_to_ticks(INPUT_LONG_PRESS_MS);
     uint32_t repeat_ticks     = furi_ms_to_ticks(INPUT_REPEAT_MS);
@@ -557,26 +574,11 @@ void target_input_poll(
             }
         }
 
-        /* --- Alternative Keyboard Mappings (Intuitive Nav) --- */
-        if (!nav) {
-            switch (key_id) {
-                case TCA_KEY_A: case TCA_KEY_L:
-                    for (int j = 0; j < 6; j++) if (nav_states[j].furi_key == InputKeyLeft) { nav = &nav_states[j]; break; }
-                    break;
-                case TCA_KEY_D: case TCA_KEY_R:
-                    for (int j = 0; j < 6; j++) if (nav_states[j].furi_key == InputKeyRight) { nav = &nav_states[j]; break; }
-                    break;
-                case TCA_KEY_W:
-                    for (int j = 0; j < 6; j++) if (nav_states[j].furi_key == InputKeyUp) { nav = &nav_states[j]; break; }
-                    break;
-                case TCA_KEY_S:
-                    for (int j = 0; j < 6; j++) if (nav_states[j].furi_key == InputKeyDown) { nav = &nav_states[j]; break; }
-                    break;
-                case TCA_KEY_SPACE:
-                    for (int j = 0; j < 6; j++) if (nav_states[j].furi_key == InputKeyOk) { nav = &nav_states[j]; break; }
-                    break;
-            }
-        }
+        /* NOTE: W/A/S/D/L/R and Space used to be remapped to nav here ("intuitive
+         * WASD nav"), but that made them un-typeable — the user couldn't enter
+         * those letters in a WiFi password. The ADV has dedicated arrow keys
+         * (Fn+;/,/./ ) plus Enter (OK) and Del/Esc (Back) for navigation, so
+         * those letter keys now fall through to the text path and type normally. */
 
         if (nav) {
             if (pressed) {
@@ -601,7 +603,7 @@ void target_input_poll(
                 /* Publish as InputTypeText; key field carries ASCII value.
                  * Receivers check type==InputTypeText to distinguish from nav. */
                 InputEvent event = {
-                    .sequence_source  = INPUT_SEQUENCE_SOURCE_HARDWARE,
+                    .sequence_source  = INPUT_SEQUENCE_SOURCE_KEYBOARD,
                     .sequence_counter = ++(*sequence_counter),
                     .key              = (InputKey)ch,
                     .type             = InputTypeText,

@@ -79,13 +79,13 @@ void furi_hal_version_init(void) {
 
     /* Determine effective name:
      *   1. If a custom name was already loaded (e.g., from namechanger), use it.
-     *   2. Otherwise derive a stable name from the eFuse MAC. */
+     *   2. Otherwise use the hardcoded default name. */
     const char* custom = version_get_custom_name(NULL);
     const char* effective;
     if(custom && custom[0]) {
         effective = custom;
     } else {
-        effective = s_device_name_pool[derive_name_index(furi_hal_version.uid)];
+        effective = "Eli";
     }
     furi_hal_version_refresh_names(effective);
 }

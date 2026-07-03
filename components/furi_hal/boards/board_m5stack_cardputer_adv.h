@@ -157,6 +157,11 @@
 #define BOARD_PIN_I2S_LRCK      43
 #define BOARD_PIN_I2S_DOUT      42
 #define BOARD_PIN_I2S_MCLK      0
+/* ES8311 control interface: I2C. Confirmed by boot-time i2c scan — the codec
+ * ACKs at 0x18 on the internal keyboard I2C bus (GPIO8/9 = I2C_NUM_0, shared
+ * with the TCA8418 keyboard @0x34 and BMI270 IMU @0x69). */
+#define BOARD_ES8311_I2C_PORT   I2C_NUM_0
+#define BOARD_ES8311_I2C_ADDR   0x18
 
 /* FuriHalSpeaker expects BOARD_PIN_SPEAKER_* */
 #define BOARD_PIN_SPEAKER_BCLK  BOARD_PIN_I2S_SCLK

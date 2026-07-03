@@ -251,6 +251,17 @@ void view_dispatcher_input_callback(InputEvent* event, void* context) {
 }
 
 void view_dispatcher_handle_input(ViewDispatcher* view_dispatcher, InputEvent* event) {
+    /* Text events (physical keyboard) carry an ASCII char in .key, not an
+     * InputKey — bypass the nav complementarity bitmask (1 << key is UB for
+     * ASCII) and the Back-navigation logic, delivering straight to the current
+     * view. text_input consumes them; other views ignore the unknown type. */
+    if(event->type == InputTypeText) {
+        if(view_dispatcher->current_view) {
+            view_input(view_dispatcher->current_view, event);
+        }
+        return;
+    }
+
     // Check input complementarity
     uint8_t key_bit = (1 << event->key);
     if(event->type == InputTypePress) {
@@ -275,9 +286,10 @@ void view_dispatcher_handle_input(ViewDispatcher* view_dispatcher, InputEvent* e
     // Remap rotary-encoder input based on view's input mode.
     // ONLY for HARDWARE (= the T-Embed 1-axis encoder, which physically emits
     // Up/Down and needs Up/Down<->Left/Right swapping to drive horizontal
-    // button views). Touch panels use INPUT_SEQUENCE_SOURCE_TOUCH and are a
-    // genuine 2-axis source — they already deliver Left/Right natively, so they
-    // must be excluded here or horizontal swipes never reach LeftRight views.
+    // button views). Touch panels (INPUT_SEQUENCE_SOURCE_TOUCH) and full
+    // physical keyboards (INPUT_SEQUENCE_SOURCE_KEYBOARD, e.g. Cardputer-ADV)
+    // are genuine 2-axis sources — they already deliver Left/Right natively,
+    // so they must be excluded here or their Left/Right keys get mangled.
     if(view_dispatcher->current_view &&
        event->sequence_source == INPUT_SEQUENCE_SOURCE_HARDWARE) {
         ViewInputMode mode = view_get_input_mode(view_dispatcher->current_view);

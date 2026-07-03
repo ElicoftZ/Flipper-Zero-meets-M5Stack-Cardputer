@@ -140,6 +140,13 @@ static void wlan_worker_fn(void* arg) {
             cfg.dynamic_rx_buf_num = 4;
             cfg.dynamic_tx_buf_num = 8;
 
+            /* TEMP DIAGNOSTIC: esp_wifi_init has been failing ESP_ERR_NO_MEM.
+             * Log free + largest-contiguous internal RAM to see whether it's a
+             * total-free shortfall or fragmentation (needs a big contiguous block). */
+            ESP_LOGW(TAG, "before wifi_init: free_internal=%u largest=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+
             err = esp_wifi_init(&cfg);
             if(err != ESP_OK) {
                 ESP_LOGE(TAG, "wifi_init: %s", esp_err_to_name(err));
@@ -153,6 +160,11 @@ static void wlan_worker_fn(void* arg) {
                 ESP_LOGE(TAG, "wifi_start: %s", esp_err_to_name(err));
                 esp_wifi_deinit();
                 ok = false;
+            } else {
+                /* TEMP DIAGNOSTIC: confirm init/start actually succeeded and with
+                 * what buffer config (empty-scan investigation). */
+                ESP_LOGW(TAG, "wifi init+start OK (static_rx=%d dyn_rx=%d dyn_tx=%d)",
+                         cfg.static_rx_buf_num, cfg.dynamic_rx_buf_num, cfg.dynamic_tx_buf_num);
             }
             break;
 
@@ -259,6 +271,8 @@ static void wlan_worker_fn(void* arg) {
             }
             uint16_t count = 0;
             esp_wifi_scan_get_ap_num(&count);
+            /* TEMP DIAGNOSTIC: how many APs did the radio actually see? */
+            ESP_LOGW(TAG, "scan done: ap_num=%u", count);
             if(count > cmd.scan.max_count) count = cmd.scan.max_count;
             if(count > 0) {
                 *cmd.scan.out_records = malloc(count * sizeof(wifi_ap_record_t));

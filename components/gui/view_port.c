@@ -61,6 +61,13 @@ static const CanvasOrientation view_port_orientation_mapping[ViewPortOrientation
 
 // Remaps directional pad buttons on Flipper based on ViewPort orientation
 static void view_port_map_input(InputEvent* event, ViewPortOrientation orientation) {
+    // Text events (physical keyboard) carry an ASCII char in .key, not a
+    // directional InputKey — never remap them by orientation. Without this the
+    // furi_check below fails ('a'=97 is not < InputKeyMAX=6) and the mapping
+    // table would be indexed out of bounds. Leave the ASCII char untouched.
+    if(event->type == InputTypeText) {
+        return;
+    }
     furi_check(orientation < ViewPortOrientationMAX && event->key < InputKeyMAX);
 
     // Software-injected events (RPC) already arrive in the final, orientation-

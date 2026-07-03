@@ -4,7 +4,14 @@
 #include "wlan_hal.h"
 #include "wlan_netcut.h"
 
-#include <esp_heap_caps.h> /* TEMP: heap diagnostics for the C6 OOM crash */
+#include <esp_heap_caps.h>
+#include <dialogs/dialogs.h>
+
+/* The WiFi app allocates ~40 KB of views/records and then esp_wifi_init needs
+ * ~40 KB more. On this no-PSRAM board, if another radio app (e.g. BLE Spam) has
+ * leaked/fragmented the heap, opening here would OOM mid-view-alloc and crash
+ * (StoreProhibited writing a NULL view model). Refuse gracefully below this. */
+#define WLAN_APP_MIN_FREE_INTERNAL (55 * 1024)
 
 static bool wlan_app_custom_event_callback(void* context, uint32_t event) {
     furi_assert(context);
@@ -141,15 +148,14 @@ static WlanApp* wlan_app_alloc(void) {
 
     app->text_buf = furi_string_alloc();
     app->netcut = wlan_netcut_alloc();
-    /* TEMP: log heap right before the 15KB cred_sniff alloc that OOM-crashed. */
-    printf(
-        "[WLAN] heap before cred_sniff: free=%u largest_block=%u\n",
-        (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
-        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
-    app->cred_sniff = wlan_cred_sniff_alloc();
-    printf("[WLAN] cred_sniff=%p\n", (void*)app->cred_sniff);
-    wlan_netcut_set_cred_sniff(app->netcut, app->cred_sniff);
-    wlan_html_inject_set_cred_sniff(app->cred_sniff);
+    /* cred_sniff is ~15 KB (ring[32] of WlanCredEntry) and ONLY the live-creds /
+     * evil-portal / MITM features use it. Allocating it here left only ~20 KB
+     * free by the time the app brought up esp_wifi_init (~40 KB needed) →
+     * ESP_ERR_NO_MEM → scan found no networks. Defer it: the live-creds scene
+     * (the single arming point) calls wlan_app_ensure_cred_sniff() on enter. The
+     * cred-sniff API is NULL-safe throughout (feed/snapshot/drain/set_armed all
+     * no-op on NULL), so nothing crashes before it is ensured. */
+    app->cred_sniff = NULL;
 
     app->mitm_inject_enabled = true;
     app->mitm_store_cred = true;
@@ -162,6 +168,21 @@ static WlanApp* wlan_app_alloc(void) {
     wlan_handshake_settings_load(&app->hs_settings);
 
     return app;
+}
+
+WlanCredSniff* wlan_app_ensure_cred_sniff(WlanApp* app) {
+    /* Lazy one-time allocation of the ~15 KB credential sniffer + its wiring
+     * into netcut / html-inject. Deferred from app start so esp_wifi_init has
+     * enough heap to come up (see wlan_app_alloc). Returns NULL if OOM — callers
+     * must handle it (the whole cred-sniff API tolerates a NULL instance). */
+    if(!app->cred_sniff) {
+        app->cred_sniff = wlan_cred_sniff_alloc();
+        if(app->cred_sniff) {
+            wlan_netcut_set_cred_sniff(app->netcut, app->cred_sniff);
+            wlan_html_inject_set_cred_sniff(app->cred_sniff);
+        }
+    }
+    return app->cred_sniff;
 }
 
 static void wlan_app_free(WlanApp* app) {
@@ -231,6 +252,29 @@ static void wlan_app_free(WlanApp* app) {
 
 int32_t wlan_app(void* args) {
     UNUSED(args);
+
+    /* Bail cleanly if the heap is too depleted to allocate the app safely
+     * (e.g. right after a radio app like BLE Spam leaked memory) — otherwise a
+     * view allocation returns NULL and we crash on first use. */
+    size_t freeh = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    if(freeh < WLAN_APP_MIN_FREE_INTERNAL) {
+        DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+        DialogMessage* msg = dialog_message_alloc();
+        dialog_message_set_header(msg, "WiFi Unavailable", 64, 8, AlignCenter, AlignTop);
+        dialog_message_set_text(
+            msg,
+            "Not enough free RAM.\nReboot, or close other\nradio apps first.",
+            64,
+            34,
+            AlignCenter,
+            AlignCenter);
+        dialog_message_set_buttons(msg, NULL, NULL, "OK");
+        dialog_message_show(dialogs, msg);
+        dialog_message_free(msg);
+        furi_record_close(RECORD_DIALOGS);
+        return 0;
+    }
+
     WlanApp* app = wlan_app_alloc();
     scene_manager_next_scene(app->scene_manager, WlanAppSceneMain);
     view_dispatcher_run(app->view_dispatcher);

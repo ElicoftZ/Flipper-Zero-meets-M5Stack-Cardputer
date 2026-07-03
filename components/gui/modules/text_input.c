@@ -447,6 +447,26 @@ static void text_input_handle_ok(TextInput* text_input, TextInputModel* model, I
     }
 }
 
+/* Insert a printable character at the cursor — shared by the on-screen keyboard
+ * (OK on a glyph) and the ADV physical keyboard (InputTypeText). */
+static void text_input_insert_char(TextInputModel* model, char ch) {
+    if(!model->text_buffer) return;
+    size_t text_length = model->clear_default_text ? 0 : strlen(model->text_buffer);
+    if(text_length >= (model->text_buffer_size - 1)) return;
+
+    if(model->clear_default_text) {
+        model->text_buffer[0] = ch;
+        model->text_buffer[1] = '\0';
+        model->cursor_pos = 1;
+    } else {
+        char* move = model->text_buffer + model->cursor_pos;
+        memmove(move + 1, move, strlen(move) + 1);
+        model->text_buffer[model->cursor_pos] = ch;
+        model->cursor_pos++;
+    }
+    model->clear_default_text = false;
+}
+
 static bool text_input_view_input_callback(InputEvent* event, void* context) {
     TextInput* text_input = context;
     furi_assert(text_input);
@@ -455,6 +475,17 @@ static bool text_input_view_input_callback(InputEvent* event, void* context) {
 
     // Acquire model
     TextInputModel* model = view_get_model(text_input->view);
+
+    /* Physical keyboard: a printable character was typed (ASCII in event->key). */
+    if(event->type == InputTypeText) {
+        char ch = (char)event->key;
+        if(ch >= 0x20 && ch < 0x7F) {
+            text_input_insert_char(model, ch);
+            consumed = true;
+        }
+        view_commit_model(text_input->view, consumed);
+        return consumed;
+    }
 
     if((!(event->type == InputTypePress) && !(event->type == InputTypeRelease)) &&
        model->validator_message_visible) {

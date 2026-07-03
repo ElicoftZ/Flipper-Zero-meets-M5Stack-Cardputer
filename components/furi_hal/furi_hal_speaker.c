@@ -25,6 +25,10 @@
 #include <driver/gpio.h>
 #include <esp_timer.h>
 
+#if defined(BOARD_HAS_ES8311) && BOARD_HAS_ES8311
+#include <driver/i2c.h>
+#endif
+
 #include <math.h>
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -80,6 +84,60 @@ static volatile bool speaker_thread_run = false;
 static int16_t* wave_buffer = NULL;
 static size_t wave_buffer_samples = 0; /* number of stereo frames */
 static size_t wave_buffer_bytes = 0;
+
+#if defined(BOARD_HAS_ES8311) && BOARD_HAS_ES8311
+/* ---- ES8311 codec (Cardputer-ADV) ----
+ * Unlike the standard Cardputer's dumb NS4168 I2S amp, the ADV routes audio
+ * through an ES8311 codec that must be configured over I2C before it will pass
+ * any I2S data to the speaker. Init runs lazily on the first speaker acquire
+ * (by then the keyboard has installed the shared I2C bus and the I2S channel —
+ * hence MCLK — is enabled). */
+static bool es8311_inited = false;
+
+static esp_err_t es8311_write(uint8_t reg, uint8_t val) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (BOARD_ES8311_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg, true);
+    i2c_master_write_byte(cmd, val, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(BOARD_ES8311_I2C_PORT, cmd, pdMS_TO_TICKS(50));
+    i2c_cmd_link_delete(cmd);
+    return ret;
+}
+
+/* Register init for DAC/speaker playback: MCLK from the I2S mclk pin (256*fs),
+ * I2S slave, 16-bit. Values follow the ES8311 datasheet power-up procedure. */
+static const uint8_t es8311_seq[][2] = {
+    {0x00, 0x1F}, {0x45, 0x00}, {0x01, 0x30}, {0x02, 0x10}, {0x03, 0x10},
+    {0x16, 0x24}, {0x04, 0x10}, {0x05, 0x00}, {0x06, 0x03}, {0x07, 0x00},
+    {0x08, 0xFF}, {0x09, 0x0C}, {0x0A, 0x0C}, {0x0B, 0x00}, {0x0C, 0x00},
+    {0x10, 0x1F}, {0x11, 0x7F}, {0x00, 0x80}, {0x0D, 0x01}, {0x0E, 0x02},
+    {0x12, 0x00}, {0x13, 0x10}, {0x1C, 0x6A}, {0x37, 0x08}, {0x32, 0xBF},
+    {0x00, 0x80}, {0x44, 0x08},
+};
+
+static void es8311_ensure_init(void) {
+    if(es8311_inited) return;
+    es8311_inited = true;
+
+    esp_err_t first = es8311_write(es8311_seq[0][0], es8311_seq[0][1]); /* reset */
+    furi_delay_ms(20);
+    unsigned nacks = (first != ESP_OK) ? 1 : 0;
+    for(size_t i = 1; i < sizeof(es8311_seq) / sizeof(es8311_seq[0]); i++) {
+        if(es8311_write(es8311_seq[i][0], es8311_seq[i][1]) != ESP_OK) nacks++;
+    }
+    FURI_LOG_I(TAG, "ES8311 init done (addr 0x%02X, %u write errors)",
+               BOARD_ES8311_I2C_ADDR, nacks);
+}
+
+void furi_hal_speaker_es8311_set_volume_reg(float volume) {
+    if(!es8311_inited) return;
+    if(volume < 0.0f) volume = 0.0f;
+    if(volume > 1.0f) volume = 1.0f;
+    es8311_write(0x32, (uint8_t)(volume * 255.0f)); /* 0x00 mute .. 0xFF max */
+}
+#endif
 
 /* ---- Helpers ---- */
 
@@ -197,7 +255,12 @@ void furi_hal_speaker_init(void) {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SPEAKER_SAMPLE_RATE),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
+#if defined(BOARD_HAS_ES8311) && BOARD_HAS_ES8311
+            /* ES8311 needs a master clock; the NS4168 (standard Cardputer) does not. */
+            .mclk = (gpio_num_t)BOARD_PIN_I2S_MCLK,
+#else
             .mclk = I2S_GPIO_UNUSED,
+#endif
             .bclk = (gpio_num_t)BOARD_PIN_SPEAKER_BCLK,
             .ws = (gpio_num_t)BOARD_PIN_SPEAKER_WCLK,
             .dout = (gpio_num_t)BOARD_PIN_SPEAKER_DOUT,
@@ -256,6 +319,11 @@ bool furi_hal_speaker_acquire(uint32_t timeout) {
             ESP_ERROR_CHECK(i2s_channel_enable(i2s_tx_handle));
             i2s_channel_enabled = true;
         }
+#if defined(BOARD_HAS_ES8311) && BOARD_HAS_ES8311
+        /* MCLK is now running (channel enabled) and the keyboard's shared I2C
+         * bus is up by first speaker use — configure the codec once. */
+        es8311_ensure_init();
+#endif
         return true;
     }
     return false;

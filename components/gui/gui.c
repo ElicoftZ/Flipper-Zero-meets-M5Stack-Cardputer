@@ -274,6 +274,25 @@ static void gui_input(Gui* gui, InputEvent* input_event) {
     furi_assert(gui);
     furi_assert(input_event);
 
+    /* Text events (physical keyboard) carry an ASCII char in .key, not an
+     * InputKey, so they must NOT go through the nav complementarity bitmask
+     * below (1 << key would be UB for e.g. 'a'=97). Route straight to the
+     * currently focused view port and return. */
+    if(input_event->type == InputTypeText) {
+        gui_lock(gui);
+        ViewPort* view_port = NULL;
+        if(gui_is_lockdown(gui)) {
+            view_port = gui_view_port_find_enabled(gui->layers[GuiLayerDesktop]);
+        } else {
+            view_port = gui_view_port_find_enabled(gui->layers[GuiLayerFullscreen]);
+            if(!view_port) view_port = gui_view_port_find_enabled(gui->layers[GuiLayerWindow]);
+            if(!view_port) view_port = gui_view_port_find_enabled(gui->layers[GuiLayerDesktop]);
+        }
+        if(view_port) view_port_input(view_port, input_event);
+        gui_unlock(gui);
+        return;
+    }
+
     // Check input complementarity
     uint8_t key_bit = (1 << input_event->key);
     if(input_event->type == InputTypeRelease) {

@@ -21,7 +21,7 @@
 
 #define TAG "EvilPortal"
 #define DNS_PORT 53
-#define DNS_TASK_STACK 6144
+#define DNS_TASK_STACK 4096
 
 static volatile bool s_running = false;
 static volatile bool s_paused = false;
@@ -557,12 +557,13 @@ static void http_close_cb(httpd_handle_t hd, int sockfd) {
 static bool start_http(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 24;
-    // Bumped from 7 → 13: Windows clients open many parallel connections (Steam,
-    // Discord, Chrome, WPAD, NCSI, etc) the moment they detect a new network,
-    // and 7 sockets exhausts within milliseconds, dropping browser captive-portal
-    // probes with ERR_CONNECTION_RESET. 13 is the practical max per ESP-IDF.
-    config.max_open_sockets = 13;
+    config.max_uri_handlers = 8;
+    // No-PSRAM board: LWIP_MAX_SOCKETS is small (see sdkconfig) and internal heap
+    // is ~7 KB free at this point, so we cannot afford 13 sockets (that also
+    // exceeds the LWIP budget → httpd_start ESP_ERR_INVALID_ARG). 4 open sockets
+    // fits LWIP_MAX_SOCKETS=8 (3 used internally + 1 DNS) and the tight heap;
+    // captive-portal probes still work, just with less parallelism.
+    config.max_open_sockets = 4;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;
     // Aggressive recv timeout so a stuck client doesn't squat a socket forever.
@@ -1208,12 +1209,13 @@ static void evil_portal_start_worker(void* arg) {
 
     ESP_LOGI(TAG, "[worker] starting DNS task");
     s_dns_run = true;
-    // Task-Stack ins PSRAM legen (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y):
-    // der interne Heap ist nach esp_wifi_init + httpd (13 Sockets) zu knapp fuer
-    // 6 KB Stack. Erfordert vTaskDeleteWithCaps() beim Self-Delete (siehe dns_task).
+    // This board has NO PSRAM, so the DNS task stack must come from internal RAM
+    // (the original MALLOC_CAP_SPIRAM always failed here → "DNS task create
+    // FAILED" → portal never started). vTaskDeleteWithCaps() at self-delete frees
+    // it regardless of the caps used at creation.
     if(xTaskCreateWithCaps(
-           dns_task, "EpDns", DNS_TASK_STACK, NULL, 4, &s_dns_task, MALLOC_CAP_SPIRAM) !=
-       pdPASS) {
+           dns_task, "EpDns", DNS_TASK_STACK, NULL, 4, &s_dns_task,
+           MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) != pdPASS) {
         ESP_LOGE(TAG, "  DNS task create FAILED");
         s_dns_run = false;
         stop_http();

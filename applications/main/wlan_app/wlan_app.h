@@ -236,6 +236,12 @@ struct WlanApp {
     View* view_sd_update;
 };
 
+/** Lazily allocate the ~15 KB credential sniffer (deferred at app start so
+ *  esp_wifi_init has heap to come up) and wire it into netcut / html-inject.
+ *  Idempotent. Returns NULL on OOM — the cred-sniff API tolerates NULL. Called
+ *  by the live-creds scene on enter. */
+WlanCredSniff* wlan_app_ensure_cred_sniff(WlanApp* app);
+
 /** Schlüssel der aktuellen Picker-Assoziation: Channel-Key im Channel-Mode,
  *  sonst SSID des Targets/Connected-AP (oder leerer String). */
 static inline void wlan_app_picker_current_key(const WlanApp* app, char* out, size_t sz) {

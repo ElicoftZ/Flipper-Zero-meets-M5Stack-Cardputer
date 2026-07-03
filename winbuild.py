@@ -37,9 +37,6 @@ DEFAULT_DURATION = 8.0
 
 # Mirrors build.sh board mapping.
 BOARDS = {
-    "t_embed":      ("lilygo_t_embed_cc1101", "esp32s3", "build_t_embed"),
-    "esp32s3":      ("esp32s3_generic",       "esp32s3", "build_s3"),
-    "waveshare_c6": ("waveshare_c6_1.9",      "esp32c6", "build_waveshare_c6"),
     "cardputer":    ("m5stack_cardputer",     "esp32s3", "build_cardputer"),
     "cardputer_adv":("m5stack_cardputer_adv", "esp32s3", "build_cardputer_adv"),
 }
@@ -108,6 +105,50 @@ def _sdkconfig_defaults_arg(flipper_board: str) -> str:
     return ""
 
 
+def _merge_bin(build_dir: str, board_name: str, target: str):
+    """Create a single merged .bin from bootloader + partition-table + app."""
+    import json
+    flasher_json = REPO_ROOT / build_dir / "flasher_args.json"
+    if not flasher_json.exists():
+        print(f"[merge] {flasher_json} not found, skipping merge.")
+        return
+
+    with open(flasher_json) as f:
+        info = json.load(f)
+
+    flash_settings = info.get("flash_settings", {})
+    flash_mode = flash_settings.get("flash_mode", "dio")
+    flash_size = flash_settings.get("flash_size", "8MB")
+    chip = info.get("extra_esptool_args", {}).get("chip", target)
+
+    # Build the merge_bin argument list: offset file pairs
+    parts = []
+    for offset, rel_path in sorted(info["flash_files"].items(), key=lambda x: int(x[0], 16)):
+        abs_path = REPO_ROOT / build_dir / rel_path
+        if not abs_path.exists():
+            print(f"[merge] WARNING: {abs_path} not found, skipping merge.")
+            return
+        parts.extend([offset, str(abs_path)])
+
+    out_name = f"Flipper-{board_name}-merged.bin"
+    out_path = REPO_ROOT / out_name
+
+    # esptool merge_bin via IDF env (esptool is on PATH after export.bat)
+    merge_args = (
+        f"--chip {chip} merge_bin "
+        f"--flash_mode {flash_mode} --flash_size {flash_size} "
+        f"-o \"{out_path}\" " + " ".join(parts)
+    )
+    esp_idf_dir = get_esp_idf_dir()
+    cmd = f'call "{esp_idf_dir}\\export.bat" && esptool.py {merge_args}'
+    rc = subprocess.run(cmd, shell=True, env=env_for_idf(), cwd=str(REPO_ROOT)).returncode
+    if rc == 0:
+        size_mb = out_path.stat().st_size / (1024 * 1024)
+        print(f"[merge] Created {out_name} ({size_mb:.1f} MB)")
+    else:
+        print(f"[merge] esptool merge_bin failed (rc={rc})")
+
+
 def cmd_build(args):
     flipper_board, target, build_dir = BOARDS[args.board]
     common = f"-B {build_dir} -DFLIPPER_BOARD={flipper_board} {_sdkconfig_defaults_arg(flipper_board)}".rstrip()
@@ -118,7 +159,12 @@ def cmd_build(args):
     rc = run_with_idf_env(esp_idf_dir, f"{common} set-target {target}", extra)
     if rc != 0:
         return rc
-    return run_with_idf_env(esp_idf_dir, f"{common} reconfigure build", extra)
+    rc = run_with_idf_env(esp_idf_dir, f"{common} reconfigure build", extra)
+    if rc != 0:
+        return rc
+    # Generate merged binary (bootloader + partition-table + app → single .bin)
+    _merge_bin(build_dir, args.board, target)
+    return 0
 
 
 def cmd_flash(args):

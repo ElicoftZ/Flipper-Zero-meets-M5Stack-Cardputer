@@ -21,6 +21,11 @@ extern "C" {
  * view_port.c), so touch is treated like HARDWARE everywhere except that one
  * encoder-specific remap. */
 #define INPUT_SEQUENCE_SOURCE_TOUCH    (2u)
+/* Full physical keyboard (Cardputer-ADV TCA8418).  Like TOUCH this is a true
+ * 2-axis source — Left/Right keys exist physically — so the 1-axis encoder
+ * Up↔Left/Right remap in view_dispatcher must NOT be applied.  ViewPort
+ * orientation remapping still applies normally. */
+#define INPUT_SEQUENCE_SOURCE_KEYBOARD (3u)
 
 /** Input Keys */
 typedef enum {
@@ -42,7 +47,8 @@ typedef enum {
     InputTypeShort, /**< Short event, emitted after InputTypeRelease done within INPUT_LONG_PRESS interval */
     InputTypeLong, /**< Long event, emitted after INPUT_LONG_PRESS_COUNTS interval, asynchronous to InputTypeRelease  */
     InputTypeRepeat, /**< Repeat event, emitted with INPUT_LONG_PRESS_COUNTS period after InputTypeLong event */
-    InputTypeMAX, /**< Special value for exceptional */
+    InputTypeMAX, /**< Special value for exceptional; equals the count of RPC-mapped types (rpc_gui.c asserts InputTypeMAX==5) */
+    InputTypeText, /**< Printable character typed on a physical keyboard (Cardputer-ADV); ASCII carried in InputEvent.key. Placed AFTER InputTypeMAX to preserve the protobuf contract; not sent over RPC. Consumers MUST check type==InputTypeText before reading key as a character. */
 } InputType;
 
 /** Input Event, dispatches with FuriPubSub */
