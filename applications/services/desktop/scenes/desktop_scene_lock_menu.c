@@ -2,6 +2,7 @@
 #include <gui/scene_manager.h>
 
 #include <btshim.h>
+#include <furi_hal_big_fap.h>
 
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
@@ -76,7 +77,8 @@ static void desktop_scene_lock_menu_refresh(Desktop* desktop) {
         LOCK_MENU_USB_AVAILABLE,
         qflipper_bridge_is_active(),
         desktop_lock_menu_bt_enabled(),
-        desktop_lock_menu_bruce_available());
+        desktop_lock_menu_bruce_available(),
+        furi_hal_big_fap_is_active());
 }
 
 void desktop_scene_lock_menu_on_enter(void* context) {
@@ -127,6 +129,17 @@ bool desktop_scene_lock_menu_on_event(void* context, SceneManagerEvent event) {
             /* T-Embed ist immer Master; der Master-Mesh-Service läuft on-demand in
              * der Mesh-Clients-Scene. */
             scene_manager_next_scene(desktop->scene_manager, DesktopSceneMeshClients);
+            consumed = true;
+            break;
+
+        case DesktopLockMenuEventBigFapToggle:
+            /* Both paths soft-reset and do NOT return: enter() reboots into the
+             * clean max-heap state, exit() reboots back to normal. */
+            if(furi_hal_big_fap_is_active()) {
+                furi_hal_big_fap_exit();
+            } else {
+                furi_hal_big_fap_enter();
+            }
             consumed = true;
             break;
 

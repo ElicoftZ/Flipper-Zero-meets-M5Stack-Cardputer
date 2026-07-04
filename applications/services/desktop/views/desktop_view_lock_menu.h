@@ -36,7 +36,8 @@ void desktop_lock_menu_set_states(
     bool usb_available,
     bool qflipper_on,
     bool bt_on,
-    bool bruce_available);
+    bool bruce_available,
+    bool big_fap_on);
 
 DesktopLockMenuView* desktop_lock_menu_alloc(void);
 void desktop_lock_menu_free(DesktopLockMenuView* lock_menu);

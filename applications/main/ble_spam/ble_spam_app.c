@@ -2,6 +2,7 @@
 #include "ble_uuid_db.h"
 #include "ble_spam_hal.h"
 #include <dialogs/dialogs.h>
+#include <furi_hal_big_fap.h>
 #include "views/ble_spam_view.h"
 #include "views/ble_walk_scan_view.h"
 #include "views/ble_walk_detail_view.h"
@@ -147,6 +148,21 @@ static void ble_spam_app_free(BleSpamApp* app) {
 
 int32_t ble_spam_app(void* args) {
     UNUSED(args);
+
+    /* Big FAP Mode blocks the radios so heavy apps keep the heap. */
+    if(furi_hal_big_fap_is_active()) {
+        DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+        DialogMessage* message = dialog_message_alloc();
+        dialog_message_set_header(message, "Big FAP Mode", 64, 8, AlignCenter, AlignTop);
+        dialog_message_set_text(
+            message, "Big FAP Mode active -\nonly apps can run.", 64, 34, AlignCenter, AlignCenter);
+        dialog_message_set_buttons(message, NULL, NULL, "OK");
+        dialog_message_show(dialogs, message);
+        dialog_message_free(message);
+        furi_record_close(RECORD_DIALOGS);
+        return 0;
+    }
+
     ble_uuid_db_init();
     BleSpamApp* app = ble_spam_app_alloc();
     if(!app) {

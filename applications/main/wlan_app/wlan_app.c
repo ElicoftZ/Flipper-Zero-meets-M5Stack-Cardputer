@@ -8,6 +8,7 @@
 #include <esp_system.h>
 #include <dialogs/dialogs.h>
 #include <storage/storage.h>
+#include <furi_hal_big_fap.h>
 
 /* The WiFi app allocates ~40 KB of views/records and then esp_wifi_init needs
  * ~40 KB more. On this no-PSRAM board, if another radio app (e.g. BLE Spam) has
@@ -338,6 +339,20 @@ static void wlan_app_flush_and_reset(void) {
 
 int32_t wlan_app(void* args) {
     UNUSED(args);
+
+    /* Big FAP Mode blocks the radios so heavy apps keep the heap. */
+    if(furi_hal_big_fap_is_active()) {
+        DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+        DialogMessage* msg = dialog_message_alloc();
+        dialog_message_set_header(msg, "Big FAP Mode", 64, 8, AlignCenter, AlignTop);
+        dialog_message_set_text(
+            msg, "Big FAP Mode active -\nonly apps can run.", 64, 34, AlignCenter, AlignCenter);
+        dialog_message_set_buttons(msg, NULL, NULL, "OK");
+        dialog_message_show(dialogs, msg);
+        dialog_message_free(msg);
+        furi_record_close(RECORD_DIALOGS);
+        return 0;
+    }
 
     /* Fully release Bluetooth FIRST (reclaims ~64 KB incl. the deinit residual)
      * so the free-RAM gate below passes even right after Bluetooth was used —

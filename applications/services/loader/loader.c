@@ -3,6 +3,7 @@
 #include <applications.h>
 #include <storage/storage.h>
 #include <furi_hal.h>
+#include <furi_hal_big_fap.h>
 #include <assets_icons.h>
 
 #include <dialogs/dialogs.h>
@@ -807,6 +808,10 @@ static bool loader_do_deferred_launch(Loader* loader, LoaderDeferredLaunchRecord
 static void loader_do_app_closed(Loader* loader) {
     furi_assert(loader->app.thread);
 
+    /* Was this an external FAP? (Internal/settings apps have fap == NULL.)
+     * Captured before the fap is freed below — used for the Big FAP Mode exit. */
+    const bool was_fap = (loader->app.fap != NULL);
+
     furi_thread_join(loader->app.thread);
     FURI_LOG_I(TAG, "App returned: %li", furi_thread_get_return_code(loader->app.thread));
 
@@ -835,6 +840,13 @@ static void loader_do_app_closed(Loader* loader) {
     LoaderEvent event;
     event.type = LoaderEventTypeApplicationStopped;
     furi_pubsub_publish(loader->pubsub, &event);
+
+    /* Big FAP Mode: the user launched a heavy external FAP; now that they've left
+     * it, reboot back to normal (restores BT/WiFi availability). Only external
+     * FAPs trigger this — internal/settings apps have was_fap == false. */
+    if(was_fap && furi_hal_big_fap_is_active()) {
+        furi_hal_big_fap_exit(); /* reboots; does not return */
+    }
 
     loader_do_next_deferred_launch_if_available(loader);
 }

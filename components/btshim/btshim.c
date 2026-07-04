@@ -10,6 +10,7 @@
 #include "bt_i.h"
 
 #include <furi_hal_bt.h>
+#include <furi_hal_big_fap.h>
 #include <gui/elements.h>
 #include <assets_icons.h>
 #include <notification/notification_messages.h>
@@ -680,6 +681,14 @@ static void bt_handle_stop_stack(Bt* bt) {
 
 static void bt_handle_start_stack(Bt* bt) {
     FURI_LOG_I(TAG, "Starting BLE stack...");
+
+    /* Big FAP Mode blocks the radios so heavy apps keep the heap. Covers every
+     * enable path (lock menu, Settings→Bluetooth, RPC) at the single choke. */
+    if(furi_hal_big_fap_is_active()) {
+        FURI_LOG_W(TAG, "Big FAP Mode active; BLE stack stays down");
+        bt->status = BtStatusOff;
+        return;
+    }
 
     /* WiFi released the BLE controller's RAM this boot — esp_bt_controller_init()
      * would fault. Stay down until reboot. */
