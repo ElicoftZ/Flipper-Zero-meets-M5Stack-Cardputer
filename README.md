@@ -157,7 +157,7 @@ The desktop lock menu doubles as the central system control panel (board-depende
 - **USB Storage** — expose the SD card as a USB mass-storage device *(USB-OTG boards)*
 - **Bluetooth** — toggle BLE on/off
 - **Mesh Clients** — buddy discovery & control *(see Mesh / Buddy above)*
-
+- **BIG FAP Mode** — Forces disable Bluetooth and Wifi to give enough Sram to run FAP
 #### Archive
 SD-card file browser with tabs per media type: Favorites, Sub-GHz, NFC, LF-RFID, Infrared, iButton, Bad USB, U2F, Apps, Internal, Browser. Pin/unpin favorites; copy, paste, rename, delete, create folder.
 
