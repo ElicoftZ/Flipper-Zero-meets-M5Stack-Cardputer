@@ -46,125 +46,115 @@ The physical keyboard is fully mapped to navigate the Flipper Zero UI:
 *Full keyboard typing (printable ASCII characters) is supported in text fields.*
 
 ---
+## Apps
 
-Apps
-📡 Wireless / RF
-Sub-GHz
+### 📡 Wireless / RF
+
+#### Sub-GHz
 External CC1101 receiver/transmitter for 433–868 MHz signals.
+- Receive & decode
+- Read RAW: capture unknown waveforms to `.sub` files for later analysis
+- Frequency analyzer with sweep & live RSSI
+- Hopper: scan all preset bands during receive
+- Transmit saved files; manual signal creation (frequency, modulation, protocol, key/serial/counter)
+- Brute force / sub-brute attack with manufacturer dictionary
+- Playlist for sequential transmit
+- **TPMS decoding** — tire-pressure sensors: Schrader GG4, Citroën, Ford, Renault, Toyota (PMV107J) and a generic decoder; dedicated info view with editable sensor data
+- **Limitation:** AES-encrypted manufacturer keystores (`keeloq_mfcodes`, `nice_flor_s`, `alutech_at_4n`) are not decryptable on this port — only the plain-text `keeloq_mfcodes_user` works for Keeloq decoding.
 
-Receive & decode
-Read RAW: capture unknown waveforms to .sub files for later analysis
-Frequency analyzer with sweep & live RSSI
-Hopper: scan all preset bands during receive
-Transmit saved files; manual signal creation (frequency, modulation, protocol, key/serial/counter)
-Brute force / sub-brute attack with manufacturer dictionary
-Playlist for sequential transmit
-TPMS decoding — tire-pressure sensors: Schrader GG4, Citroën, Ford, Renault, Toyota (PMV107J) and a generic decoder; dedicated info view with editable sensor data
-Limitation: AES-encrypted manufacturer keystores (keeloq_mfcodes, nice_flor_s, alutech_at_4n) are not decryptable on this port — only the plain-text keeloq_mfcodes_user works for Keeloq decoding.
-Sub-GHz Remote
-Multi-button remote layouts that batch saved .sub files. Map Up/Down/Left/Right/OK to individual transmit signals; switch between persistent remote profiles.
+#### Sub-GHz Remote
+Multi-button remote layouts that batch saved `.sub` files. Map Up/Down/Left/Right/OK to individual transmit signals; switch between persistent remote profiles.
 
-WiFi
+#### WiFi
 Full WiFi pentest toolkit.
+- **Scanner** — SSID, BSSID, channel, RSSI, auth mode
+- **Connect** — auto-detect WPA/WPA2/WPA3, password input or saved password lookup (`/ext/wifi/<ssid>.txt`)
+- **Deauther** — SSID-mode (single AP) or Channel-mode (all on channel)
+- **Sniffer** — capture packets to PCAP
+- **Handshake capture** — record EAPOL 4-way handshakes, optionally with deauth trigger
+- **AirSnitch** — auto-bruteforce target with password list
+- **Beacon Spam** — Funny SSIDs / Rickroll / Random / Custom
+- **Network Scan / Port Scan** — host discovery + 19 common-port probe on the connected network
+- **Web Crawler** — domain-based web crawler
+- **Evil Portal** — captive portal with credential harvesting
+  - Built-in templates: Google login, Router firmware update
+  - Custom templates from `/ext/wifi/evil_portal/login_template/*.html` and `/ext/wifi/evil_portal/router_template/*.html` (filename = template name in dropdown)
+  - Marker substitution: `%ERROR%`, `%SSID_OPTIONS%` (live AP scan)
+  - Router-style verify flow: dropdown of real SSIDs, live WLAN re-auth check, captured-credentials screen on success, retry with error banner on fail
+  - Pause/Resume of the AP from the run screen
+  - Captured creds saved to `/ext/wifi/evil_portal/<ssid>_creds.csv`
+  - **Internet bridge** *(new)* — optional STA uplink with NAPT + DNS forwarding so victims get real internet behind the portal; iOS captive-portal "Success" handling; uplink SSID/password configured in-app
 
-Scanner — SSID, BSSID, channel, RSSI, auth mode
-Connect — auto-detect WPA/WPA2/WPA3, password input or saved password lookup (/ext/wifi/<ssid>.txt)
-Deauther — SSID-mode (single AP) or Channel-mode (all on channel)
-Sniffer — capture packets to PCAP
-Handshake capture — record EAPOL 4-way handshakes, optionally with deauth trigger
-AirSnitch — auto-bruteforce target with password list
-Beacon Spam — Funny SSIDs / Rickroll / Random / Custom
-Network Scan / Port Scan — host discovery + 19 common-port probe on the connected network
-Web Crawler — domain-based web crawler
-Evil Portal — captive portal with credential harvesting
-Built-in templates: Google login, Router firmware update
-Custom templates from /ext/wifi/evil_portal/login_template/*.html and /ext/wifi/evil_portal/router_template/*.html (filename = template name in dropdown)
-Marker substitution: %ERROR%, %SSID_OPTIONS% (live AP scan)
-Router-style verify flow: dropdown of real SSIDs, live WLAN re-auth check, captured-credentials screen on success, retry with error banner on fail
-Pause/Resume of the AP from the run screen
-Captured creds saved to /ext/wifi/evil_portal/<ssid>_creds.csv
-Internet bridge (new) — optional STA uplink with NAPT + DNS forwarding so victims get real internet behind the portal; iOS captive-portal "Success" handling; uplink SSID/password configured in-app
-Mesh / Buddy (ESP-NOW)
-Pair cheap headless ESP32 boards (buddies) to the T-Embed (master) over ESP-NOW to offload WiFi capture and run remote actions.
+#### Mesh / Buddy *(ESP-NOW)*
+Pair cheap headless ESP32 boards (**buddies**) to the T-Embed (**master**) over ESP-NOW to offload WiFi capture and run remote actions.
+- Buddy discovery, pair/remove and live status from the lock menu → **Mesh Clients**
+- **Device Identify** — make a paired buddy blink to locate it
+- **WiFi handshake capture** — buddy passively captures EAPOL handshakes on a chosen channel (1–13)
+- **Store-and-forward** — the buddy holds each complete handshake (M1–M4 + beacon) durably (RAM + NVS) per BSSID and delivers it as one acknowledged unit, surviving master absence and buddy reboots
+- One `.pcap` per network written to `/ext/wifi/buddy_<name>_<ssid>.pcap`; "Handshake received" overlay on all mesh views
+- Buddy firmware ships in this repo under [`buddy_firmware/`](buddy_firmware/) (standalone headless ESP-IDF project)
 
-Buddy discovery, pair/remove and live status from the lock menu → Mesh Clients
-Device Identify — make a paired buddy blink to locate it
-WiFi handshake capture — buddy passively captures EAPOL handshakes on a chosen channel (1–13)
-Store-and-forward — the buddy holds each complete handshake (M1–M4 + beacon) durably (RAM + NVS) per BSSID and delivers it as one acknowledged unit, surviving master absence and buddy reboots
-One .pcap per network written to /ext/wifi/buddy_<name>_<ssid>.pcap; "Handshake received" overlay on all mesh views
-Buddy firmware ships in this repo under buddy_firmware/ (standalone headless ESP-IDF project)
-Bluetooth
-BLE Spam — Apple Continuity (Pair/Action/NotYourDevice), Google FastPair (455+ models), Microsoft SwiftPair, Samsung Buds & Watch, Xiaomi QuickConnect
-BLE Walk — passive scanner with GATT service/characteristic inspection
-BLE Clone (dev) — replicate active BLE advertisements
-FindMy — emulate Apple AirTag, Samsung SmartTag, Tile beacons (clone or generate keypairs)
-HID (see below) — keyboard/mouse/media remote over BLE
-Bad USB — via USB or BLE
-NRF24 (2.4 GHz, external nRF24L01)
-Spectrum analyzer — live 2.4 GHz channel activity
-Jammer (rewritten) — one engine with switchable channel sources (Protocol / Manual / WiFi / Activity scan), strategies (CW / Flood / Turbo) and presets; configuration persists per source
-MouseJacker — inject keystrokes into vulnerable wireless mice/keyboards
-Also available as a FAP (nRF24_jammer)
-Infrared
+#### Bluetooth
+- **BLE Spam** — Apple Continuity (Pair/Action/NotYourDevice), Google FastPair (455+ models), Microsoft SwiftPair, Samsung Buds & Watch, Xiaomi QuickConnect
+- **BLE Walk** — passive scanner with GATT service/characteristic inspection
+- **BLE Clone** *(dev)* — replicate active BLE advertisements
+- **FindMy** — emulate Apple AirTag, Samsung SmartTag, Tile beacons (clone or generate keypairs)
+- **HID** *(see below)* — keyboard/mouse/media remote over BLE
+- **Bad USB** — via USB or BLE
+
+#### NRF24 *(2.4 GHz, external nRF24L01)*
+- **Spectrum analyzer** — live 2.4 GHz channel activity
+- **Jammer** *(rewritten)* — one engine with switchable channel sources (Protocol / Manual / WiFi / Activity scan), strategies (CW / Flood / Turbo) and presets; configuration persists per source
+- **MouseJacker** — inject keystrokes into vulnerable wireless mice/keyboards
+- Also available as a FAP (`nRF24_jammer`)
+
+#### Infrared
 RMT-based TX + RX.
+- Learn signals (auto-decoded or raw)
+- Browse, edit, and send saved remotes
+- Universal remotes: TV, AC, audio, projectors, fans, LED controllers (databases on SD)
+- Brute force category-based databases
+- Configurable IR pin and 5 V GPIO power
+- Protocols: NEC, NEC42, Samsung32, RC5/RC5X, RC6, SIRC 12/15/20, Kaseikyo, RCA, Pioneer
 
-Learn signals (auto-decoded or raw)
-Browse, edit, and send saved remotes
-Universal remotes: TV, AC, audio, projectors, fans, LED controllers (databases on SD)
-Brute force category-based databases
-Configurable IR pin and 5 V GPIO power
-Protocols: NEC, NEC42, Samsung32, RC5/RC5X, RC6, SIRC 12/15/20, Kaseikyo, RCA, Pioneer
-🪪 NFC
-NFC (PN532 over I2C)
-Read, save, emulate, write NFC cards/tags
-Manual card generation (custom UID/ATQA/SAK)
-Mifare Classic dictionary attack (system + user dictionaries)
-Mifare Ultralight-C dictionary unlock
-ISO15693 SLIX unlock with manual or stored DEF key
-FeliCa system info, MIFARE DESFire app inspection, EMV transaction history
-14 supported protocols: ISO14443-3A/3B/4A/4B, ISO15693-3, FeliCa, MIFARE Classic/Ultralight/Plus/DESFire, SLIX, ST25TB, NTAG4xx, Type-4
-30+ supported card auto-parsers (Charlie Card, Clipper, EMV, Gallagher, HID, Opal, Skylanders, Troika, …)
-Passy (FAP)
-Biometric passport (MRTD) reader — reads and displays data groups from ePassports over NFC. Shipped as a prebuilt FAP in sdcard/apps/.
+### 🪪 NFC
 
-TagTinker (FAP)
-Infrared ESL (Electronic Shelf Label) research toolkit. Transmits custom images/text to graphics tags via IR. RLE streaming, Android companion app for image editing, monochrome + accent-color support.
+#### NFC *(PN532 over I2C)*
+- Read, save, emulate, write NFC cards/tags
+- Manual card generation (custom UID/ATQA/SAK)
+- Mifare Classic dictionary attack (system + user dictionaries)
+- Mifare Ultralight-C dictionary unlock
+- ISO15693 SLIX unlock with manual or stored DEF key
+- FeliCa system info, MIFARE DESFire app inspection, EMV transaction history
+- 14 supported protocols: ISO14443-3A/3B/4A/4B, ISO15693-3, FeliCa, MIFARE Classic/Ultralight/Plus/DESFire, SLIX, ST25TB, NTAG4xx, Type-4
+- 30+ supported card auto-parsers (Charlie Card, Clipper, EMV, Gallagher, HID, Opal, Skylanders, Troika, …)
 
-⌨️ HID / USB
-Bad USB
-HID payload runner for Ducky-script (.txt) files from /ext/badusb/.
+### ⌨️ HID / USB
 
-16+ Ducky commands (DELAY, STRING, REPEAT, HOLD/RELEASE, MEDIA keys, mouse, ALT-CHAR/ALT-STRING, SYSRQ)
-Layouts under /ext/badusb/assets/layouts/*.kl (~30 included)
-Configurable USB VID/PID + device name
-BLE bonding with custom MAC and PIN-verify pairing
-Mouse movement, scroll, button emulation; per-character typing delay
-Transport: USB OTG (TinyUSB) on T-Embed, BLE on Waveshare
-🛠 System / Tools
-Lock Menu / System Toggles
+#### Bad USB
+HID payload runner for Ducky-script (`.txt`) files from `/ext/badusb/`.
+- 16+ Ducky commands (DELAY, STRING, REPEAT, HOLD/RELEASE, MEDIA keys, mouse, ALT-CHAR/ALT-STRING, SYSRQ)
+- Layouts under `/ext/badusb/assets/layouts/*.kl` (~30 included)
+- Configurable USB VID/PID + device name
+- BLE bonding with custom MAC and PIN-verify pairing
+- Mouse movement, scroll, button emulation; per-character typing delay
+- **Transport:** USB OTG (TinyUSB) on T-Embed, BLE on Waveshare
+
+### 🛠 System / Tools
+
+#### Lock Menu / System Toggles
 The desktop lock menu doubles as the central system control panel (board-dependent, scrollable):
+- **qFlipper** — enable the qFlipper desktop bridge (VID/PID spoof + CDC RPC) so the official qFlipper app can connect *(USB-OTG boards)*
+- **USB Storage** — expose the SD card as a USB mass-storage device *(USB-OTG boards)*
+- **Bluetooth** — toggle BLE on/off
+- **Mesh Clients** — buddy discovery & control *(see Mesh / Buddy above)*
 
-qFlipper — enable the qFlipper desktop bridge (VID/PID spoof + CDC RPC) so the official qFlipper app can connect (USB-OTG boards)
-USB Storage — expose the SD card as a USB mass-storage device (USB-OTG boards)
-Bluetooth — toggle BLE on/off
-Mesh Clients — buddy discovery & control (see Mesh / Buddy above)
-Archive
+#### Archive
 SD-card file browser with tabs per media type: Favorites, Sub-GHz, NFC, LF-RFID, Infrared, iButton, Bad USB, U2F, Apps, Internal, Browser. Pin/unpin favorites; copy, paste, rename, delete, create folder.
 
-JS Runner
-mJS-based JavaScript runtime for user scripts in /ext/apps/Scripts/*.js.
+### ⚙ Settings & General
+Bluetooth, backlight, clock, dolphin/passport, expansion port, input, notification, power, storage, system info, factory reset. Animated dolphin desktop on idle. File-pack manifest at `/ext/Manifest` (qFlipper-style asset list — its presence suppresses the "No DB" boot animation).
 
-Available modules: gui (loading/menu/dialogs/text+byte input/popup/file picker/widget), notification, math, storage, event_loop, subghz, infrared, badusb, blebeacon
-Excluded on this port (need HAL porting): js_serial, js_gpio, js_i2c, js_spi
-🎮 Games
-Doom
-Full DOOM port. Place doom1.wad at /ext/apps_data/doom/doom1.wad. Encoder turns; click fires (short) / walks forward (long). Side-button uses doors/switches (short) / opens menu (long).
-
-Snake
-Classic snake game.
-
-⚙ Settings & General
-Bluetooth, backlight, clock, dolphin/passport, expansion port, input, notification, power, storage, system info, factory reset. Animated dolphin desktop on idle. File-pack manifest at /ext/Manifest (qFlipper-style asset list — its presence suppresses the "No DB" boot animation).
 ---
 
 ## How to Flash
@@ -191,9 +181,10 @@ esptool.py --chip esp32s3 -b 460800 write_flash 0x0 Flipper-cardputer_adv-merged
 Most applications require database and asset files on an SD card. 
 1. Format a MicroSD card to **FAT32**.
 2. Download the SD card files from the releases section or use the starter files:
-   [sdcard.zip](https://github.com/ElicoftZ/Flipper-Zero-ESP32-Port-meets-M5-Cardputer/releases)
+   [sdcard.zip]([https://github.com/ElicoftZ/Flipper-Zero-ESP32-Port-meets-M5-Cardputer/releases](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v1.1.5/sdcard.zip))
 3. Extract the contents directly to the root of the MicroSD card and insert it into your Cardputer.
 
+![SD Folder](pic3.png)
 ---
 
 ## Building from Source
