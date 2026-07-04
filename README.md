@@ -34,7 +34,7 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 
 - **Frequent Question**
   - Where to get the files?
-    Answer:
+   - Answer:
     ![SD Card](pic4.png)
 
 ---
