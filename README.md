@@ -30,13 +30,12 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 
 ---
 ## Requires SD card to work properly.
-- Set up [SD Card](https://github.com/ElicoftZ/Flipper-Zero-meets-M5Stack-Cardputer#setup-sd-card)
- **Frequent Question**
+- Set up **[SD Card](https://github.com/ElicoftZ/Flipper-Zero-meets-M5Stack-Cardputer#setup-sd-card)**
+
+- **Frequent Question**
   - Where to get the files?
     Answer:
     ![SD Card](pic4.png)
-
-
 
 ---
 
