@@ -8,7 +8,7 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 
 ## Supported Hardware
 
-![M5Stack Cardputer](pic1.heic)
+![M5Stack Cardputer](pic1.png)
 
 | Feature | M5Stack Cardputer (Standard) | M5Stack Cardputer ADV |
 |---|---|---|
@@ -23,7 +23,7 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 | **RGB LED** | — | WS2812 (GPIO 21) |
 | **SD Card Slot** | Yes (SPI3) | Yes (SPI3) |
 
-![M5Stack Cardputer Side](pic2.heic)
+![M5Stack Cardputer Side](pic2.png)
 
 ---
 
