@@ -115,5 +115,7 @@ python winbuild.py build --board cardputer
 
 ## Credits
 
-* **Sor3nt** for the original ESP32 port.
-* Flipper Devices Inc. for the original firmware and application framework.
+* **[Sor3nt](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port)** for the original Flipper Zero port for ESP32.
+* **[0xhalloween](https://github.com/0xhalloween/Flipper-Zero-ESP32-ADV)** for adding the M5Stack Cardputer support.
+* **Flipper Devices Inc.** for the original firmware and application framework.
+
