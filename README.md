@@ -33,7 +33,7 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 - Can i run flipper zero without SD card
 - Anwser: No, SD card is required to work properly
 - Set up **[SD Card](https://github.com/ElicoftZ/Flipper-Zero-meets-M5Stack-Cardputer#setup-sd-card)**
-------------------
+##
  - Where to get the files?
  - Answer:
  ![SD Card](pic4.png)
