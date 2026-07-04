@@ -255,17 +255,6 @@ static void furi_hal_power_refresh_sample(void) {
         supply_voltage = 6.0f;
     }
 
-    /* TEMP battery calibration: compare Vbat= against a multimeter reading on the
-     * battery to derive the correct divider ratio. raw/pin_mv let us sanity-check
-     * the ADC path independently of the ratio. */
-    ESP_LOGW(
-        TAG,
-        "BATT raw=%d pin_mv=%d ratio=%.2f -> Vbat=%.3f",
-        raw_value,
-        pin_mv,
-        (double)FURI_HAL_POWER_ADC_DIVIDER_RATIO,
-        (double)supply_voltage);
-
     furi_hal_power.last_supply_voltage = supply_voltage;
     if(!furi_hal_power_is_usb_present()) {
         furi_hal_power.has_battery_reading = true;
