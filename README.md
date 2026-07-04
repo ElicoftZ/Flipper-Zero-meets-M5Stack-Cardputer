@@ -23,6 +23,9 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 | **RGB LED** | — | WS2812 (GPIO 21) |
 | **SD Card Slot** | Yes (SPI3) | Yes (SPI3) |
 
+> ⚠️ M5Stack Cardputer is not available, Coming soon
+
+
 ![M5Stack Cardputer Side](pic2.png)
 
 ---
@@ -49,8 +52,8 @@ The physical keyboard is fully mapped to navigate the Flipper Zero UI:
 ### Method 1: Web Flasher (Easiest)
 
 Connect your Cardputer over USB and use the online flasher in a Chrome/Edge browser:
-
-👉 **[Flash via Browser](https://sor3nt.github.io/interface.html)**
+# (Coming soon)
+ 👉 **[Flash via Browser]**  
 
 ### Method 2: Flash the Merged Binary Directly
 
