@@ -181,7 +181,7 @@ esptool.py --chip esp32s3 -b 460800 write_flash 0x0 Flipper-cardputer_adv-merged
 Most applications require database and asset files on an SD card. 
 1. Format a MicroSD card to **FAT32**.
 2. Download the SD card files from the releases section or use the starter files:
-   [sdcard.zip]([https://github.com/ElicoftZ/Flipper-Zero-ESP32-Port-meets-M5-Cardputer/releases](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v1.1.5/sdcard.zip))
+   [sdcard.zip](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v1.1.5/sdcard.zip)
 3. Extract the contents directly to the root of the MicroSD card and insert it into your Cardputer.
 
 ![SD Folder](pic3.png)
