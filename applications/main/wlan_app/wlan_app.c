@@ -5,7 +5,9 @@
 #include "wlan_netcut.h"
 
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <dialogs/dialogs.h>
+#include <storage/storage.h>
 
 /* The WiFi app allocates ~40 KB of views/records and then esp_wifi_init needs
  * ~40 KB more. On this no-PSRAM board, if another radio app (e.g. BLE Spam) has
@@ -323,6 +325,17 @@ void wlan_app_portal_views_restore(WlanApp* app) {
     view_dispatcher_add_view(app->view_dispatcher, WlanAppViewSdUpdate, app->view_sd_update);
 }
 
+/* Flush + unmount the SD so no captured data (pcaps, creds, passwords) or
+ * settings write is lost, THEN soft-reset. The reset hands the BLE controller
+ * RAM (released for WiFi) back for the next boot so Bluetooth works again. */
+static void wlan_app_flush_and_reset(void) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    storage_sd_unmount(storage);
+    furi_record_close(RECORD_STORAGE);
+    furi_delay_ms(100); // let the unmount + any logs settle
+    esp_restart();
+}
+
 int32_t wlan_app(void* args) {
     UNUSED(args);
 
@@ -350,6 +363,9 @@ int32_t wlan_app(void* args) {
         dialog_message_show(dialogs, msg);
         dialog_message_free(msg);
         furi_record_close(RECORD_DIALOGS);
+        /* We already released the BLE controller RAM at entry, so soft-reset to
+         * bring it (and Bluetooth) back for the next boot. */
+        wlan_app_flush_and_reset();
         return 0;
     }
 
@@ -357,5 +373,12 @@ int32_t wlan_app(void* args) {
     scene_manager_next_scene(app->scene_manager, WlanAppSceneMain);
     view_dispatcher_run(app->view_dispatcher);
     wlan_app_free(app);
+
+    /* Leaving WiFi: we mem_release()'d the BLE controller on entry, so Bluetooth
+     * cannot re-init this boot. Soft-reset so the next boot has all the radio RAM
+     * back and BLE works again — the clean way to alternate WiFi and Bluetooth on
+     * this no-PSRAM board (the user asked for this explicitly). */
+    FURI_LOG_I("WlanApp", "WiFi closed — flush SD + soft reset to restore BLE RAM");
+    wlan_app_flush_and_reset();
     return 0;
 }
