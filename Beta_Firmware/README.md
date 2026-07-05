@@ -15,9 +15,14 @@ Built: 2026-07-05
   soft reset" Back/OK dialog before touching the radios.
 - **NRF24 jammer fix** — CE pin corrected from GPIO43 (T-Embed) to GPIO4 on this
   board, so the jammer can key TX.
-- **New GPIO app** — manual GPIO control on the Grove/Qwiic port (G2/GPIO2,
-  G1/GPIO1). Pin table is editable in `components/furi_hal/furi_hal_resources.c`
-  for other PCBs. (USB-UART bridge deferred to a later build.)
+- **New GPIO app** — manual GPIO control:
+  - *Manual Control* — quick presets on the Grove/Qwiic port (G2/GPIO2, G1/GPIO1);
+    preset table editable in `components/furi_hal/furi_hal_resources.c`.
+  - *Custom Pin (any GPIO)* — pick any valid GPIO at runtime (excludes flash
+    GPIO26–32 and nonexistent 22–25), choose mode (output push-pull / input
+    pull-up / pull-down / float), drive high/low, and live-read the level. Lets
+    you use a custom PCB's pins without recompiling.
+  - (USB-UART bridge deferred to a later build.)
 
 ## Flash instructions
 Put the ESP32-S3 in the right mode and flash at offset `0x0`.
