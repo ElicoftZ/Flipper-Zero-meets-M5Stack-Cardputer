@@ -489,12 +489,14 @@ static void key_copier_view_measure_draw_callback(Canvas* canvas, void* model) {
         inches_per_px);
     canvas_draw_icon(canvas, slc_pin_px - 2, top_contour_px - 25, &I_arrow_down);
 
+    // Draw format name (bold and easy to read)
+    canvas_set_font(canvas, FontPrimary);
     furi_string_printf(buffer, "%s", my_format.format_name);
-    canvas_draw_str(canvas, 102, 10, furi_string_get_cstr(buffer));
+    canvas_draw_str(canvas, 102, 12, furi_string_get_cstr(buffer));
     
-    // Draw help instructions for calibration/positioning
+    // Draw help instructions for calibration/positioning on the left
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str(canvas, 2, 8, "A/D:Shift  -/+:Scale  R:Reset");
+    canvas_draw_str(canvas, 2, 8, "-/[  +/]  R:Reset");
     furi_string_free(buffer);
 }
 
@@ -599,7 +601,7 @@ static bool key_copier_view_measure_input_callback(InputEvent* event, void* cont
     } else if(event->type == InputTypeText) {
         bool redraw = false;
         char key_char = (char)event->key;
-        if(key_char == 'q' || key_char == 'Q' || key_char == 'a' || key_char == 'A') {
+        if(key_char == '[') {
             // Shift left
             redraw = true;
             with_view_model(
@@ -611,7 +613,7 @@ static bool key_copier_view_measure_input_callback(InputEvent* event, void* cont
                     }
                 },
                 redraw);
-        } else if(key_char == 'e' || key_char == 'E' || key_char == 'd' || key_char == 'D') {
+        } else if(key_char == ']') {
             // Shift right
             redraw = true;
             with_view_model(

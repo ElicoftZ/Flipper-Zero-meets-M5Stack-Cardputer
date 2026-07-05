@@ -248,6 +248,15 @@ def generate_registry(buildset: AppBuildset, autorun_app: str) -> str:
         contents.append(f"extern void {app.entry_point}(void);")
     contents.append("")
 
+    # Declare all referenced icons as extern const Icon
+    all_referenced_icons = set()
+    for app in buildset.apps:
+        if app.icon:
+            all_referenced_icons.add(app.icon)
+    for icon in sorted(all_referenced_icons):
+        contents.append(f"extern const Icon {icon};")
+    contents.append("")
+
     registry_sections = (
         ("FlipperInternalApplication", "FLIPPER_SERVICES", services),
         ("FlipperInternalApplication", "FLIPPER_APPS", main_apps),

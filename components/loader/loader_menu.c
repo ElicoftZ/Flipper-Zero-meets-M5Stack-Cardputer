@@ -143,6 +143,7 @@ static void loader_menu_build_menu(LoaderMenuApp* app, LoaderMenu* menu) {
 
     loader_menu_trace_settings_registry();
 
+    /* Comment out Applications item to save space and scrolling
     menu_add_item(
         app->primary_menu,
         LOADER_APPLICATIONS_NAME,
@@ -150,6 +151,7 @@ static void loader_menu_build_menu(LoaderMenuApp* app, LoaderMenu* menu) {
         i++,
         loader_menu_applications_callback,
         (void*)menu);
+    */
 
     for(i = 0; i < FLIPPER_APPS_COUNT; i++) {
         menu_add_item(
