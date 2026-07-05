@@ -23,6 +23,12 @@ Built: 2026-07-05
     pull-up / pull-down / float), drive high/low, and live-read the level. Lets
     you use a custom PCB's pins without recompiling.
   - (USB-UART bridge deferred to a later build.)
+- **Readable idle backlight** — the panel can't display below ~85% backlight, so
+  the idle/dim floor is clamped to ~86% (idle no longer goes black).
+- **Idle light sleep** — after 2 min with no input, the device enters ESP32 light
+  sleep (screen off, CPU halted, low power). Wakes on any key or the power button;
+  a timer fallback force-wakes it so it can never get stuck asleep. Inhibited while
+  USB is connected (keeps the console/flashing port alive).
 
 ## Flash instructions
 Put the ESP32-S3 in the right mode and flash at offset `0x0`.
