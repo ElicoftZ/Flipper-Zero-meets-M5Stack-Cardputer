@@ -94,6 +94,7 @@ if(NOT CMAKE_SCRIPT_MODE_FILE)
             "${ESP32_DIR}/applications/system"
             "${ESP32_DIR}/applications/drivers"
             "${ESP32_DIR}/applications/debug"
+            "${ESP32_DIR}/port_apps"
         )
         target_sources(${COMPONENT_LIB} PRIVATE $<TARGET_OBJECTS:${esp32_fam_target}>)
     endforeach()

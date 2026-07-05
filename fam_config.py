@@ -4,6 +4,7 @@ MANIFEST_ROOTS = [
     "components",
     "applications",
     "applications_user",
+    "port_apps",
 ]
 
 APP_SOURCE_OVERRIDES = {
@@ -72,6 +73,7 @@ APPS = [
     "js_infrared",
     "js_blebeacon",
     # js_serial, js_gpio, js_i2c, js_spi excluded - need HAL porting
+    "key_copier",
 ]
 
 # Boards without NFC / IR hardware – exclude the corresponding apps
