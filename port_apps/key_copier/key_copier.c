@@ -494,7 +494,7 @@ static void key_copier_view_measure_draw_callback(Canvas* canvas, void* model) {
     
     // Draw help instructions for calibration/positioning
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str(canvas, 2, 8, "A/D:Shift  W/S:Scale  R:Reset");
+    canvas_draw_str(canvas, 2, 8, "A/D:Shift  -/+:Scale  R:Reset");
     furi_string_free(buffer);
 }
 
@@ -623,7 +623,7 @@ static bool key_copier_view_measure_input_callback(InputEvent* event, void* cont
                     }
                 },
                 redraw);
-        } else if(key_char == 's' || key_char == 'S' || key_char == '-' || key_char == '_') {
+        } else if(key_char == '-' || key_char == '_') {
             // Zoom in / Make scale wider (decrease inches_per_px -> more pixels per inch)
             redraw = true;
             with_view_model(
@@ -635,7 +635,7 @@ static bool key_copier_view_measure_input_callback(InputEvent* event, void* cont
                     }
                 },
                 redraw);
-        } else if(key_char == 'w' || key_char == 'W' || key_char == '+' || key_char == '=') {
+        } else if(key_char == '+' || key_char == '=') {
             // Zoom out / Make scale narrower (increase inches_per_px -> fewer pixels per inch)
             redraw = true;
             with_view_model(
