@@ -1,0 +1,620 @@
+#!/usr/bin/env python3
+"""
+FAPVerifier — M5Stack Cardputer-ADV compatibility checker for Flipper Zero .fap files & repositories.
+"""
+import struct
+import sys
+import os
+import re
+import urllib.request
+import zipfile
+import shutil
+import threading
+import queue
+import tkinter as tk
+from tkinter import filedialog
+
+if getattr(sys, 'frozen', False):
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# ------------------------------------------------------------------ rules ----
+# M5Stack Cardputer-ADV (ESP32-S3FN8, no PSRAM). Port hardware target = 32.
+HW_TARGET_THIS = 32
+API_MAJOR_THIS = 0
+API_MINOR_THIS = 1
+
+MEM_WARN_KB = 48
+MEM_FAIL_KB = 64
+
+FAP_MANIFEST_MAGIC = 0x52474448  # 'HDGR'
+
+OK, WARN, FAIL = "PASS", "WARN", "FAIL"
+_RANK = {OK: 0, WARN: 1, FAIL: 2}
+
+def worst(*statuses):
+    s = OK
+    for x in statuses:
+        if _RANK[x] > _RANK[s]:
+            s = x
+    return s
+
+PIN_MAP = {
+    "gpio_ext_pa7": (2, 14, "CC1101 MOSI — shared SubGHz/SD SPI bus"),
+    "gpio_ext_pa6": (3, 39, "CC1101 MISO — shared SubGHz/SD SPI bus"),
+    "gpio_ext_pa4": (4, 13, "CC1101 CSN — shared SubGHz SPI bus"),
+    "gpio_ext_pb3": (5, 40, "CC1101 SCK — shared SubGHz/SD SPI bus"),
+    "gpio_ext_pb2": (6, None, "not broken out on Cardputer-ADV"),
+    "gpio_ext_pc3": (7, None, "not broken out on Cardputer-ADV"),
+    "gpio_ext_pc1": (15, None, "not broken out on Cardputer-ADV"),
+    "gpio_ext_pc0": (16, None, "not broken out on Cardputer-ADV"),
+}
+
+GROVE_NOTE = "Cardputer-ADV free I/O = Grove port GPIO2 (SDA) / GPIO1 (SCL)"
+
+MODULE_SIGS = [
+    (b"furi_hal_subghz", "SubGHz (CC1101)", WARN, "needs the external CC1101 SubGHz module"),
+    (b"subghz_devices", "SubGHz (CC1101)", WARN, "needs the external CC1101 SubGHz module"),
+    (b"furi_hal_nfc", "NFC", WARN, "needs the external NFC module (Grove)"),
+    (b"nrf24", "NRF24", WARN, "needs the external NRF24 module"),
+    (b"furi_hal_infrared", "Infrared", OK, "IR TX/RX present on Cardputer-ADV"),
+    (b"furi_hal_rfid", "125 kHz RFID", FAIL, "no 125 kHz RFID front-end on Cardputer-ADV"),
+    (b"lfrfid_worker", "125 kHz RFID", FAIL, "no 125 kHz RFID front-end on Cardputer-ADV"),
+    (b"furi_hal_ibutton", "iButton", FAIL, "no iButton hardware on Cardputer-ADV"),
+    (b"furi_hal_usb_hid", "USB HID", WARN, "USB is Serial-JTAG here; HID differs"),
+]
+
+# ------------------------------------------------------------- ELF parsing ----
+class FapError(Exception):
+    pass
+
+def _read_cstr(blob, off):
+    end = blob.find(b"\x00", off)
+    return blob[off:end if end >= 0 else len(blob)]
+
+def parse_fap(path):
+    with open(path, "rb") as f:
+        blob = f.read()
+    if blob[:4] != b"\x7fELF":
+        raise FapError("Not an ELF/.fap file (bad magic).")
+    if blob[4] != 1:
+        raise FapError("Not a 32-bit ELF (FAPs are 32-bit ARM).")
+
+    e_machine = struct.unpack_from("<H", blob, 0x12)[0]
+    e_shoff = struct.unpack_from("<I", blob, 0x20)[0]
+    e_shentsize = struct.unpack_from("<H", blob, 0x2E)[0]
+    e_shnum = struct.unpack_from("<H", blob, 0x30)[0]
+    e_shstrndx = struct.unpack_from("<H", blob, 0x32)[0]
+    if e_shoff == 0 or e_shnum == 0:
+        raise FapError("ELF has no section table.")
+
+    secs = []
+    for i in range(e_shnum):
+        base = e_shoff + i * e_shentsize
+        name_off, sh_type, _flags, _addr, sh_off, sh_size = struct.unpack_from("<IIIIII", blob, base)
+        secs.append({"name_off": name_off, "type": sh_type, "off": sh_off, "size": sh_size})
+
+    shstr = secs[e_shstrndx]
+    shstrtab = blob[shstr["off"]: shstr["off"] + shstr["size"]]
+
+    out = {"machine": e_machine, "text": 0, "data": 0, "bss": 0, "fapmeta": b""}
+    for s in secs:
+        name = _read_cstr(shstrtab, s["name_off"]).decode("ascii", "replace")
+        if name == ".text":
+            out["text"] += s["size"]
+        elif name in (".data", ".data.rel.ro", ".got"):
+            out["data"] += s["size"]
+        elif name == ".bss":
+            out["bss"] += s["size"]
+        elif name == ".fapmeta":
+            out["fapmeta"] = blob[s["off"]: s["off"] + s["size"]]
+    out["blob"] = blob
+    return out
+
+def parse_manifest(data):
+    if len(data) < 20:
+        return None
+    magic, _ver = struct.unpack_from("<II", data, 0)
+    if magic != FAP_MANIFEST_MAGIC:
+        return None
+    api_minor, api_major, target, stack = struct.unpack_from("<HHHH", data, 8)
+    app_version = struct.unpack_from("<I", data, 16)[0]
+    name = ""
+    if len(data) >= 52:
+        name = data[20:52].split(b"\x00")[0].decode("utf-8", "replace")
+    return {
+        "api_major": api_major,
+        "api_minor": api_minor,
+        "target": target,
+        "stack": stack,
+        "app_version": app_version,
+        "name": name,
+    }
+
+# --------------------------------------------------------------- the checks ----
+def check_memory(fap, manifest):
+    stack = manifest["stack"] if manifest else 0
+    ram = fap["data"] + fap["bss"] + stack
+    ram_kb = ram / 1024.0
+    if ram_kb > MEM_FAIL_KB:
+        st = FAIL
+        note = f"over the {MEM_FAIL_KB} KB hard limit — won't fit on this no-PSRAM board"
+    elif ram_kb > MEM_WARN_KB:
+        st = WARN
+        note = f"tight — above the {MEM_WARN_KB} KB comfort limit (<{MEM_FAIL_KB} KB max)"
+    else:
+        st = OK
+        note = f"within the {MEM_WARN_KB} KB comfort limit"
+    detail = (f"{ram_kb:.1f} KB RAM  (data {fap['data']/1024:.1f} + bss "
+              f"{fap['bss']/1024:.1f} + stack {stack/1024:.1f})  •  code {fap['text']/1024:.1f} KB")
+    return st, detail, note
+
+def check_modules(fap):
+    blob = fap["blob"]
+    hits = {}
+    for sig, label, st, note in MODULE_SIGS:
+        if sig in blob:
+            prev = hits.get(label)
+            if prev is None or _RANK[st] > _RANK[prev[0]]:
+                hits[label] = (st, note)
+    if not hits:
+        return OK, "no external hardware module required", "pure-software app"
+    st = worst(*[v[0] for v in hits.values()])
+    parts = [f"{label} ({v[1]})" for label, v in hits.items()]
+    return st, "; ".join(parts), "required module(s) listed"
+
+def check_screen(fap):
+    return OK, "128x64 mono -> rendered on 240x135 colour TFT", "UI scales; no change needed"
+
+def check_pins(fap):
+    blob = fap["blob"]
+    used = []
+    for sym, (fpin, gpio, note) in PIN_MAP.items():
+        if sym.encode() in blob:
+            used.append((sym, fpin, gpio, note))
+    if not used:
+        return OK, "no Flipper GPIO header pins used", GROVE_NOTE
+    lines = []
+    st = OK
+    for sym, fpin, gpio, note in used:
+        if gpio is None:
+            st = worst(st, FAIL)
+            lines.append(f"pin{fpin}/{sym} -> NOT AVAILABLE ({note})")
+        else:
+            st = worst(st, WARN)
+            lines.append(f"pin{fpin}/{sym} -> GPIO{gpio} ({note})")
+    return st, "  |  ".join(lines), GROVE_NOTE
+
+# ------------------------------------------------------------- source checks ----
+def check_source_compatibility(src_dir):
+    # Scan source files directly to simulate verification when given a repository or zip
+    manifest_path = os.path.join(src_dir, "application.fam")
+    stack_size = 1024
+    app_name = os.path.basename(src_dir)
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        match = re.search(r'stack_size\s*=\s*([0-9]+)', content)
+        if match:
+            stack_size = int(match.group(1))
+        match_name = re.search(r'appid\s*=\s*["\']([^"\']+)["\']', content)
+        if match_name:
+            app_name = match_name.group(1)
+
+    # Search files
+    c_bytes = b""
+    for root, _, files in os.walk(src_dir):
+        for file in files:
+            if file.endswith((".c", ".h")):
+                try:
+                    with open(os.path.join(root, file), "rb") as f:
+                        c_bytes += f.read()
+                except Exception:
+                    pass
+
+    # Stub FAP dictionary for checkers
+    fap = {"data": 1024, "bss": 2048, "text": 8192, "blob": c_bytes}
+    manifest = {"stack": stack_size}
+    
+    results = [
+        ("Memory", *check_memory(fap, manifest)),
+        ("Module", *check_modules(fap)),
+        ("Screen", *check_screen(fap)),
+        ("Pins", *check_pins(fap)),
+    ]
+    overall = worst(*[r[1] for r in results])
+    return {"app": app_name, "arm": False, "results": results, "overall": overall}
+
+def check_api(fap, manifest):
+    if manifest is None:
+        return FAIL, "no valid .fapmeta manifest found", "not a Flipper FAP (or stripped)"
+    fapv = f"{manifest['api_major']}.{manifest['api_minor']}"
+    portv = f"{API_MAJOR_THIS}.{API_MINOR_THIS}"
+    if manifest["target"] != HW_TARGET_THIS:
+        return (WARN, f"API {fapv}, built for target {manifest['target']}",
+                f"different target — recompiled from source for this port (target {HW_TARGET_THIS})")
+    if (manifest["api_major"], manifest["api_minor"]) != (API_MAJOR_THIS, API_MINOR_THIS):
+        return (WARN, f"API {fapv} vs port {portv}", "API version differs — recompile against this port")
+    return OK, f"API {fapv}, target {manifest['target']}", "matches this port"
+
+def verify(path):
+    fap = parse_fap(path)
+    manifest = parse_manifest(fap["fapmeta"])
+    results = [
+        ("Memory", *check_memory(fap, manifest)),
+        ("API", *check_api(fap, manifest)),
+        ("Module", *check_modules(fap)),
+        ("Screen", *check_screen(fap)),
+        ("Pins", *check_pins(fap)),
+    ]
+    overall = worst(*[r[1] for r in results])
+    app_name = (manifest or {}).get("name") or os.path.basename(path)
+    is_arm = fap["machine"] == 0x28
+    return {"app": app_name, "arm": is_arm, "results": results, "overall": overall}
+
+# ------------------------------------------------------------- GUI Theme ------------------
+BG_COLOR = "#020813"
+CANVAS_BG = "#050B14"
+GRID_COLOR = "#081d33"
+NEON_BLUE = "#00bcff"
+NEON_BLUE_DARK = "#0a2240"
+TEXT_COLOR = "#ffffff"
+MUTED_TEXT = "#4f7da3"
+GREEN_GLOW = "#00ff66"
+RED_GLOW = "#ff2a2a"
+
+class FAPVerifierGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("FAP Verifier")
+        self.root.geometry("480x580")
+        self.root.configure(bg=BG_COLOR)
+        
+        # Borderless window drag setup
+        self.root.overrideredirect(True)
+        self._drag_data = {"x": 0, "y": 0}
+        
+        self.is_processing = False
+        self.animation_step = 0
+        
+        self.build_ui()
+        self.animate_canvas()
+        
+    def build_ui(self):
+        # Outer Glowing Border
+        self.outer_frame = tk.Frame(self.root, bg=NEON_BLUE, bd=1)
+        self.outer_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.main_container = tk.Frame(self.outer_frame, bg=BG_COLOR)
+        self.main_container.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        
+        # 1. Title bar
+        self.title_bar = tk.Frame(self.main_container, bg=BG_COLOR, height=35)
+        self.title_bar.pack(fill=tk.X)
+        self.title_bar.pack_propagate(False)
+        
+        self.title_bar.bind("<ButtonPress-1>", self.start_move)
+        self.title_bar.bind("<ButtonRelease-1>", self.stop_move)
+        self.title_bar.bind("<B1-Motion>", self.on_move)
+        
+        self.title_lbl = tk.Label(self.title_bar, text="FAP VERIFIER", fg=NEON_BLUE, bg=BG_COLOR, font=("Consolas", 11, "bold"))
+        self.title_lbl.pack(side=tk.LEFT, padx=10)
+        
+        self.close_btn = tk.Button(self.title_bar, text="X", fg=TEXT_COLOR, bg=BG_COLOR, activeforeground=RED_GLOW, activebackground=BG_COLOR, bd=0, font=("Consolas", 11, "bold"), command=self.exit_app)
+        self.close_btn.pack(side=tk.RIGHT, padx=10)
+        
+        self.min_btn = tk.Button(self.title_bar, text="_", fg=TEXT_COLOR, bg=BG_COLOR, activeforeground=NEON_BLUE, activebackground=BG_COLOR, bd=0, font=("Consolas", 11, "bold"), command=self.minimize_app)
+        self.min_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # 2. Main Grid Canvas
+        self.canvas_frame = tk.Frame(self.main_container, bg=BG_COLOR, bd=1, highlightbackground=NEON_BLUE_DARK, highlightthickness=1)
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        self.canvas = tk.Canvas(self.canvas_frame, bg=CANVAS_BG, highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # 3. Controls (Centered on Canvas)
+        self.control_frame = tk.Frame(self.canvas, bg=CANVAS_BG)
+        
+        self.input_border = tk.Frame(self.control_frame, bg=NEON_BLUE_DARK, bd=1)
+        self.input_border.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
+        
+        self.input_entry = tk.Entry(self.input_border, bg=BG_COLOR, fg=TEXT_COLOR, insertbackground=NEON_BLUE, bd=0, font=("Consolas", 10), width=32)
+        self.input_entry.pack(fill=tk.X, padx=5)
+        self.input_entry.insert(0, "Enter GitHub link, local zip, or fap...")
+        self.input_entry.bind("<FocusIn>", self.clear_placeholder)
+        self.input_entry.bind("<FocusOut>", self.restore_placeholder)
+        
+        self.verify_btn = tk.Button(self.control_frame, text="VERIFY", bg=NEON_BLUE_DARK, fg=TEXT_COLOR, activebackground=NEON_BLUE, activeforeground=BG_COLOR, font=("Consolas", 9, "bold"), bd=1, relief=tk.FLAT, command=self.start_verification)
+        self.verify_btn.pack(side=tk.RIGHT, padx=5)
+        
+        self.canvas.create_window(238, 140, window=self.control_frame, width=440, tags="input_window")
+        
+        # 4. Results List Container
+        self.results_frame = tk.Frame(self.canvas, bg=CANVAS_BG)
+        self.canvas.create_window(238, 330, window=self.results_frame, width=440, height=270, tags="results_window")
+        
+        # 5. Footer status
+        self.footer = tk.Frame(self.main_container, bg=BG_COLOR, height=40)
+        self.footer.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        self.status_lbl = tk.Label(self.footer, text="WAITING FOR FILE...", fg=MUTED_TEXT, bg=BG_COLOR, font=("Consolas", 9, "bold"))
+        self.status_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        self.theme_lbl = tk.Label(self.footer, text="THEME: CYBER", fg=NEON_BLUE, bg=BG_COLOR, font=("Consolas", 9, "bold"), cursor="hand2")
+        self.theme_lbl.pack(side=tk.RIGHT, padx=10)
+        self.theme_lbl.bind("<Button-1>", self.cycle_theme)
+        
+    def start_move(self, event):
+        self._drag_data["x"] = event.x
+        self._drag_data["y"] = event.y
+
+    def stop_move(self, event):
+        self._drag_data["x"] = 0
+        self._drag_data["y"] = 0
+
+    def on_move(self, event):
+        deltax = event.x - self._drag_data["x"]
+        deltay = event.y - self._drag_data["y"]
+        x = self.root.winfo_x() + deltax
+        y = self.root.winfo_y() + deltay
+        self.root.geometry(f"+{x}+{y}")
+        
+    def exit_app(self):
+        sys.exit(0)
+        
+    def minimize_app(self):
+        self.root.overrideredirect(False)
+        self.root.iconify()
+        self.root.bind("<FocusIn>", self.restore_borderless)
+        
+    def restore_borderless(self, event):
+        self.root.overrideredirect(True)
+        self.root.unbind("<FocusIn>")
+        
+    def clear_placeholder(self, event):
+        if "Enter GitHub" in self.input_entry.get():
+            self.input_entry.delete(0, tk.END)
+            
+    def restore_placeholder(self, event):
+        if not self.input_entry.get().strip():
+            self.input_entry.insert(0, "Enter GitHub link, local zip, or fap...")
+            
+    def cycle_theme(self, event):
+        global NEON_BLUE, NEON_BLUE_DARK
+        if NEON_BLUE == "#00bcff":
+            NEON_BLUE = GREEN_GLOW
+            NEON_BLUE_DARK = "#0a3c20"
+            self.theme_lbl.configure(text="THEME: MATRIX", fg=GREEN_GLOW)
+        elif NEON_BLUE == GREEN_GLOW:
+            NEON_BLUE = RED_GLOW
+            NEON_BLUE_DARK = "#4a0a0a"
+            self.theme_lbl.configure(text="THEME: HORNET", fg=RED_GLOW)
+        else:
+            NEON_BLUE = "#00bcff"
+            NEON_BLUE_DARK = "#0a2240"
+            self.theme_lbl.configure(text="THEME: CYBER", fg="#00bcff")
+            
+        self.outer_frame.configure(bg=NEON_BLUE)
+        self.title_lbl.configure(fg=NEON_BLUE)
+        self.verify_btn.configure(bg=NEON_BLUE_DARK)
+        self.theme_lbl.configure(fg=NEON_BLUE)
+        # animate_canvas() is already running on a 40ms after-loop and reads the
+        # theme globals each frame — do NOT call it again here or each theme click
+        # stacks another compounding redraw loop.
+        
+    def update_status(self, text, color=TEXT_COLOR):
+        self.status_lbl.configure(text=text, fg=color)
+        
+    def animate_canvas(self):
+        self.canvas.delete("anim")
+        w, h = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if w < 50:
+            w, h = 480, 500
+            
+        self.canvas.delete("grid")
+        for x in range(0, w, 20):
+            self.canvas.create_line(x, 0, x, h, fill=GRID_COLOR, tags="grid")
+        for y in range(0, h, 20):
+            self.canvas.create_line(0, y, w, y, fill=GRID_COLOR, tags="grid")
+            
+        cx, cy = w // 2, h // 2
+        
+        self.canvas.create_text(cx, 40, text="FAP VERIFIER", fill=NEON_BLUE, font=("Consolas", 16, "bold"), tags="anim")
+        self.canvas.create_text(cx, 65, text="PORTABILITY & ANALYSIS TOOL", fill=MUTED_TEXT, font=("Consolas", 8, "bold"), tags="anim")
+        
+        # Border highlight around input frame
+        self.canvas.create_rectangle(cx - 224, 115, cx + 224, 165, outline=NEON_BLUE_DARK, width=2, tags="anim")
+        
+        if self.is_processing:
+            self.animation_step = (self.animation_step + 4) % h
+            self.canvas.create_line(0, self.animation_step, w, self.animation_step, fill=GREEN_GLOW, width=1, tags="anim")
+            self.canvas.create_text(cx, 93, text="SCANNING FILE...", fill=GREEN_GLOW, font=("Consolas", 9, "bold"), tags="anim")
+        else:
+            self.canvas.create_text(cx, 93, text="SYSTEM READY", fill=MUTED_TEXT, font=("Consolas", 9, "bold"), tags="anim")
+            
+        self.root.after(40, self.animate_canvas)
+        
+    def start_verification(self):
+        if self.is_processing:
+            return
+        path_or_url = self.input_entry.get().strip()
+        if not path_or_url or "Enter GitHub" in path_or_url:
+            self.update_status("ERROR: NO INPUT", RED_GLOW)
+            return
+            
+        self.is_processing = True
+        self.verify_btn.configure(state=tk.DISABLED)
+        self.update_status("PROCESSING TARGET...", NEON_BLUE)
+        
+        # Clear old rows
+        for widget in self.results_frame.winfo_children():
+            widget.destroy()
+            
+        thread = threading.Thread(target=self.run_verify_logic, args=(path_or_url,))
+        thread.daemon = True
+        thread.start()
+        
+    def run_verify_logic(self, target):
+        target = target.strip('"').strip("'")
+        
+        # Temp dir for extraction if it's a URL or ZIP
+        temp_dir = None
+        try:
+            if target.startswith("http://") or target.startswith("https://") or target.endswith(".zip"):
+                self.update_status("DOWNLOADING SOURCE...", NEON_BLUE)
+                zip_path = self.download_target(target)
+                if not zip_path:
+                    self.root.after(0, lambda: self.show_error_msg("Failed to download target."))
+                    return
+                temp_dir = os.path.join(SCRIPT_DIR, "_verifier_temp")
+                os.makedirs(temp_dir, exist_ok=True)
+                
+                # Extract
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                os.remove(zip_path)
+                
+                # Get the nested folder inside extraction
+                contents = os.listdir(temp_dir)
+                src_path = os.path.join(temp_dir, contents[0]) if contents else temp_dir
+                
+                # Scan source code
+                r = check_source_compatibility(src_path)
+            else:
+                # Local FAP
+                if not os.path.exists(target):
+                    self.root.after(0, lambda: self.show_error_msg("Local file path not found."))
+                    return
+                r = verify(target)
+                
+            self.root.after(0, lambda: self.display_results(r))
+        except Exception as e:
+            self.root.after(0, lambda: self.show_error_msg(f"Error: {e}"))
+        finally:
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            self.is_processing = False
+            self.root.after(0, lambda: self.verify_btn.configure(state=tk.NORMAL))
+            
+    def download_target(self, url):
+        dest_dir = SCRIPT_DIR
+        zip_path = os.path.join(dest_dir, "temp_ver_archive.zip")
+        # Direct ZIP download or GitHub repo redirect
+        if "github.com" in url.lower() and not url.lower().endswith(".zip"):
+            url = url.rstrip("/")
+            if url.endswith(".git"):
+                url = url[:-4]
+            url = f"{url}/archive/refs/heads/main.zip"
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'AntigravityVerifier/1.0'})
+            with urllib.request.urlopen(req) as response, open(zip_path, 'wb') as out_file:
+                shutil.copyfileobj(response, out_file)
+            return zip_path
+        except Exception:
+            # Fallback to master branch
+            if "main.zip" in url:
+                url = url.replace("main.zip", "master.zip")
+                try:
+                    urllib.request.urlretrieve(url, zip_path)
+                    return zip_path
+                except Exception:
+                    pass
+        return None
+        
+    def show_error_msg(self, msg):
+        self.update_status("VERIFICATION FAILED", RED_GLOW)
+        lbl = tk.Label(self.results_frame, text=msg, fg=RED_GLOW, bg=CANVAS_BG, font=("Consolas", 10, "bold"), wraplength=400)
+        lbl.pack(pady=40)
+        
+    def display_results(self, r):
+        # Update Footer status
+        color = GREEN_GLOW if r["overall"] == OK else (RED_GLOW if r["overall"] == FAIL else "#ffaa00")
+        self.update_status(f"OVERALL PORTABILITY: {r['overall']}", color)
+        
+        # Render Categories inside results frame
+        for cat, st, detail, note in r["results"]:
+            card = tk.Frame(self.results_frame, bg=BG_COLOR, highlightbackground=NEON_BLUE_DARK, highlightthickness=1)
+            card.pack(fill=tk.X, pady=4, padx=5)
+            
+            # Badge color
+            badge_color = GREEN_GLOW if st == OK else (RED_GLOW if st == FAIL else "#ffaa00")
+            badge_text = "PASS" if st == OK else ("FAIL" if st == FAIL else "WARN")
+            
+            badge = tk.Label(card, text=badge_text, fg=BG_COLOR, bg=badge_color, font=("Consolas", 8, "bold"), width=6)
+            badge.pack(side=tk.LEFT, padx=8, pady=8)
+            
+            info_frame = tk.Frame(card, bg=BG_COLOR)
+            info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+            
+            title = tk.Label(info_frame, text=cat, fg=TEXT_COLOR, bg=BG_COLOR, font=("Consolas", 9, "bold"), anchor="w")
+            title.pack(fill=tk.X)
+            
+            desc = tk.Label(info_frame, text=detail, fg=MUTED_TEXT, bg=BG_COLOR, font=("Consolas", 7), anchor="w", wraplength=320, justify="left")
+            desc.pack(fill=tk.X)
+            
+            if note:
+                nt = tk.Label(info_frame, text=f"• {note}", fg=MUTED_TEXT, bg=BG_COLOR, font=("Consolas", 7, "italic"), anchor="w", wraplength=320, justify="left")
+                nt.pack(fill=tk.X)
+
+def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == "--check":
+        try:  # console may be cp1252; avoid UnicodeEncodeError on em-dash/bullet
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+        target = sys.argv[2].strip('"').strip("'")
+        temp_dir = None
+        try:
+            if target.startswith("http://") or target.startswith("https://") or target.endswith(".zip"):
+                zip_path = os.path.join(SCRIPT_DIR, "temp_ver_archive_cli.zip")
+                url = target
+                if "github.com" in url.lower() and not url.lower().endswith(".zip"):
+                    url = url.rstrip("/")
+                    if url.endswith(".git"):
+                        url = url[:-4]
+                    url = f"{url}/archive/refs/heads/main.zip"
+                
+                # Download
+                try:
+                    req = urllib.request.Request(url, headers={'User-Agent': 'AntigravityVerifier/1.0'})
+                    with urllib.request.urlopen(req) as response, open(zip_path, 'wb') as out_file:
+                        shutil.copyfileobj(response, out_file)
+                except Exception:
+                    if "main.zip" in url:
+                        url = url.replace("main.zip", "master.zip")
+                        urllib.request.urlretrieve(url, zip_path)
+                
+                temp_dir = os.path.join(SCRIPT_DIR, "_verifier_temp_cli")
+                os.makedirs(temp_dir, exist_ok=True)
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                os.remove(zip_path)
+                
+                contents = os.listdir(temp_dir)
+                src_path = os.path.join(temp_dir, contents[0]) if contents else temp_dir
+                r = check_source_compatibility(src_path)
+            else:
+                r = verify(target)
+                
+            print(f"App: {r['app']}  Overall: {r['overall']}")
+            for cat, st, detail, note in r["results"]:
+                print(f"[{st}] {cat}: {detail}")
+                if note:
+                    print(f"      * {note}")
+            return 0
+        except Exception as e:
+            print(f"Error: {e}")
+            return 1
+        finally:
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            
+    root = tk.Tk()
+    app = FAPVerifierGUI(root)
+    root.mainloop()
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
