@@ -125,7 +125,10 @@
 </div>
 
 <script type="module">
-import { ESPLoader, Transport } from "https://esm.sh/esptool-js@0.6.0";
+// Vendored esptool-js 0.6.0 pre-built bundle (pako + flasher stubs baked in).
+// Importing the raw source via esm.sh corrupted the embedded base64 stub, which
+// made esptool-js fail with "atob ... not correctly encoded" during connect.
+import { ESPLoader, Transport } from "./esptool-bundle.js";
 
 // --- config: point at THIS repo (branch = Main) ---
 const REPO = "ElicoftZ/Flipper-Zero-meets-M5Stack-Cardputer";
