@@ -65,6 +65,15 @@ MODULE_SIGS = [
     (b"furi_hal_usb_hid", "USB HID", WARN, "USB is Serial-JTAG here; HID differs"),
 ]
 
+# STM32 / ARM Cortex-M specific signatures. A FAP that pokes STM32 registers, uses
+# CMSIS/Cortex-M intrinsics or arm_math (DSP) can't run on the ESP32-S3 (Xtensa) —
+# it FAILs. Apps that only use the standard/universal Flipper API port fine.
+STM_SIGS = [
+    b"stm32", b"STM32", b"arm_math", b"core_cm4", b"core_cm7",
+    b"CMSIS", b"cmsis_", b"__disable_irq", b"__enable_irq",
+    b"NVIC_", b"LL_GPIO", b"LL_TIM", b"HAL_GPIO", b"HAL_TIM",
+]
+
 # ------------------------------------------------------------- ELF parsing ----
 class FapError(Exception):
     pass
@@ -74,33 +83,50 @@ def _read_cstr(blob, off):
     return blob[off:end if end >= 0 else len(blob)]
 
 def parse_fap(path):
-    with open(path, "rb") as f:
-        blob = f.read()
-    if blob[:4] != b"\x7fELF":
-        raise FapError("Not an ELF/.fap file (bad magic).")
+    # Defensive throughout: a malformed / truncated / non-ARM ELF must raise a
+    # clean FapError, never crash the tool (this is what killed it on one .fap).
+    try:
+        with open(path, "rb") as f:
+            blob = f.read()
+    except Exception as e:  # noqa: BLE001
+        raise FapError(f"Could not read file: {e}")
+    if len(blob) < 0x34 or blob[:4] != b"\x7fELF":
+        raise FapError("Not an ELF/.fap file (bad magic or too small).")
     if blob[4] != 1:
         raise FapError("Not a 32-bit ELF (FAPs are 32-bit ARM).")
 
-    e_machine = struct.unpack_from("<H", blob, 0x12)[0]
-    e_shoff = struct.unpack_from("<I", blob, 0x20)[0]
-    e_shentsize = struct.unpack_from("<H", blob, 0x2E)[0]
-    e_shnum = struct.unpack_from("<H", blob, 0x30)[0]
-    e_shstrndx = struct.unpack_from("<H", blob, 0x32)[0]
-    if e_shoff == 0 or e_shnum == 0:
-        raise FapError("ELF has no section table.")
+    try:
+        e_machine = struct.unpack_from("<H", blob, 0x12)[0]
+        e_shoff = struct.unpack_from("<I", blob, 0x20)[0]
+        e_shentsize = struct.unpack_from("<H", blob, 0x2E)[0]
+        e_shnum = struct.unpack_from("<H", blob, 0x30)[0]
+        e_shstrndx = struct.unpack_from("<H", blob, 0x32)[0]
+    except struct.error:
+        raise FapError("Corrupt ELF header.")
+    if e_shoff == 0 or e_shnum == 0 or e_shentsize < 40:
+        raise FapError("ELF has no usable section table.")
 
     secs = []
     for i in range(e_shnum):
         base = e_shoff + i * e_shentsize
-        name_off, sh_type, _flags, _addr, sh_off, sh_size = struct.unpack_from("<IIIIII", blob, base)
+        if base < 0 or base + 24 > len(blob):
+            break  # section table runs past EOF — take what we have
+        try:
+            name_off, sh_type, _flags, _addr, sh_off, sh_size = struct.unpack_from("<IIIIII", blob, base)
+        except struct.error:
+            break
         secs.append({"name_off": name_off, "type": sh_type, "off": sh_off, "size": sh_size})
+    if not secs:
+        raise FapError("ELF section table is empty or out of range.")
 
-    shstr = secs[e_shstrndx]
-    shstrtab = blob[shstr["off"]: shstr["off"] + shstr["size"]]
+    shstrtab = b""
+    if 0 <= e_shstrndx < len(secs):
+        sh = secs[e_shstrndx]
+        shstrtab = blob[sh["off"]: sh["off"] + sh["size"]]
 
     out = {"machine": e_machine, "text": 0, "data": 0, "bss": 0, "fapmeta": b""}
     for s in secs:
-        name = _read_cstr(shstrtab, s["name_off"]).decode("ascii", "replace")
+        name = _read_cstr(shstrtab, s["name_off"]).decode("ascii", "replace") if shstrtab else ""
         if name == ".text":
             out["text"] += s["size"]
         elif name in (".data", ".data.rel.ro", ".got"):
@@ -164,6 +190,21 @@ def check_modules(fap):
     parts = [f"{label} ({v[1]})" for label, v in hits.items()]
     return st, "; ".join(parts), "required module(s) listed"
 
+def check_hardware(fap):
+    # STM32 / ARM Cortex-M specific code can't run on the ESP32-S3 (Xtensa) -> FAIL.
+    # Apps that only use the universal Flipper API -> PASS. (Heuristic byte-scan.)
+    blob = fap.get("blob", b"")
+    hits = []
+    for sig in STM_SIGS:
+        if sig in blob:
+            s = sig.decode("ascii", "replace")
+            if s.lower() not in (h.lower() for h in hits):
+                hits.append(s)
+    if hits:
+        return (FAIL, "STM32/ARM-specific: " + ", ".join(hits[:6]),
+                "uses Cortex-M / STM32 low-level code — not portable to ESP32-S3 (Xtensa)")
+    return OK, "universal Flipper API — no STM32/ARM-specific code", "portable to the ESP32 port"
+
 def check_screen(fap):
     return OK, "128x64 mono -> rendered on 240x135 colour TFT", "UI scales; no change needed"
 
@@ -219,6 +260,7 @@ def check_source_compatibility(src_dir):
     
     results = [
         ("Memory", *check_memory(fap, manifest)),
+        ("Hardware", *check_hardware(fap)),
         ("Module", *check_modules(fap)),
         ("Screen", *check_screen(fap)),
         ("Pins", *check_pins(fap)),
@@ -252,6 +294,7 @@ def verify(path):
     # compiler is what makes the API match.
     results = [
         ("Memory", *check_memory(fap, manifest)),
+        ("Hardware", *check_hardware(fap)),
         ("Module", *check_modules(fap)),
         ("Screen", *check_screen(fap)),
         ("Pins", *check_pins(fap)),
