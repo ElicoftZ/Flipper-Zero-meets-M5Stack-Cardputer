@@ -5,9 +5,26 @@ Beta build for the **M5Stack Cardputer-ADV** (ESP32-S3FN8, no PSRAM).
 **File:** `Flipper-cardputer_adv-merged.bin` — single merged image (bootloader +
 partition table + app), flash at offset **`0x0`**.
 
-Built: 2026-07-05
+Built: 2026-07-06
 
-## Changes in this build
+## New in this build (2026-07-06)
+- **Recorder app (NEW)** — main-menu app. Records the built-in microphone (ES8311
+  codec ADC, captured over full-duplex I2S) to a mono 16-bit PCM **WAV** on the SD
+  card at `/ext/recordings/rec_<timestamp>.wav`. OK to start/stop, with a live
+  level meter, elapsed timer and KB counter.
+- **ZeroFIDO (NEW)** — FIDO2 / CTAP2 **passkey authenticator over USB** (CTAPHID),
+  in the Applications menu. Credentials are stored on the device with on-screen
+  approval; supports ClientPIN. Runs on a new U2F-HID transport built into the
+  firmware (native ESP32-S3 USB HID, FIDO usage page 0xF1D0).
+- **Status LED** — the WS2812 shows activity: orange on an action (scan / spam /
+  copy / read), blue while connecting Bluetooth, red/green for battery; off during
+  light sleep. Enable it from the lock menu ("Status LED").
+- **Dolphin XP / mood on SD** — level, XP and mood are cached in RTC RAM during use
+  and flushed to the **SD card** after ~1 min idle (avoids internal-flash wear);
+  mood also updates for elapsed off-time on boot.
+- **Idle backlight floor raised to ~89%** (the panel reads as black below ~85%).
+
+## Earlier in this beta line
 - **Bluetooth crash guard** — enabling BT now checks free RAM first and refuses
   gracefully ("Not enough RAM") instead of OOM-rebooting the firmware. Best-effort
   connect to the Flipper Mobile app (RAM ceiling unchanged — no PSRAM).
