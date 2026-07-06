@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M5Stack Cardputer-ADV — Web Flasher</title>
+<style>
+  :root{
+    --bg:#020813; --panel:#0a1220; --panel2:#0d1728;
+    --blue:#00bcff; --blue-d:#0a2240; --green:#00ff66; --red:#ff3b3b;
+    --amber:#ffaa00; --text:#e6f1ff; --muted:#5f88ad;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; background:
+      radial-gradient(1200px 600px at 50% -10%, #06263f 0%, transparent 60%), var(--bg);
+    color:var(--text); font-family:Consolas,"Segoe UI",monospace;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .card{
+    width:100%; max-width:560px; background:var(--panel);
+    border:1px solid var(--blue-d); border-radius:14px; overflow:hidden;
+    box-shadow:0 0 40px rgba(0,188,255,.12);
+  }
+  .head{padding:22px 24px 10px; text-align:center; border-bottom:1px solid var(--blue-d)}
+  .head h1{margin:0; font-size:20px; letter-spacing:1px; color:var(--blue)}
+  .head p{margin:4px 0 0; font-size:12px; color:var(--muted)}
+  .body{padding:24px}
+  .screen{display:none}
+  .screen.active{display:block; animation:fade .25s ease}
+  @keyframes fade{from{opacity:0; transform:translateY(4px)}to{opacity:1;transform:none}}
+  .big-msg{text-align:center; padding:14px 0}
+  .big-msg .icon{font-size:44px}
+  .big-msg h2{margin:10px 0 4px; font-size:18px}
+  .big-msg p{margin:0; color:var(--muted); font-size:13px}
+  button{
+    font-family:inherit; cursor:pointer; border-radius:9px; border:1px solid var(--blue-d);
+    background:var(--blue-d); color:var(--text); font-weight:700; letter-spacing:.5px;
+    transition:.15s; padding:12px 18px; font-size:14px;
+  }
+  button:hover:not(:disabled){background:var(--blue); color:#001; border-color:var(--blue)}
+  button:disabled{opacity:.45; cursor:not-allowed}
+  .primary{width:100%; margin-top:18px}
+  .choices{display:grid; gap:14px; margin-top:18px}
+  .choice{
+    text-align:left; padding:16px; display:flex; gap:14px; align-items:center;
+    background:var(--panel2); border:1px solid var(--blue-d);
+  }
+  .choice:hover:not(:disabled){border-color:var(--blue); background:#0f2035; color:var(--text)}
+  .choice .tag{font-size:22px}
+  .choice b{display:block; font-size:15px}
+  .choice small{color:var(--muted); font-weight:400}
+  .beta b{color:var(--amber)} .stable b{color:var(--green)}
+  .status{margin-top:16px; text-align:center; font-size:12px; color:var(--muted); min-height:16px}
+  .status.err{color:var(--red)} .status.ok{color:var(--green)} .status.busy{color:var(--blue)}
+  .bar-wrap{height:14px; background:#04101d; border:1px solid var(--blue-d); border-radius:8px; overflow:hidden; margin:6px 0 4px}
+  .bar{height:100%; width:0%; background:linear-gradient(90deg,var(--blue),var(--green)); transition:width .2s}
+  .pct{font-size:12px; color:var(--muted); text-align:right}
+  .log{
+    margin-top:14px; height:200px; overflow:auto; background:#04101d; border:1px solid var(--blue-d);
+    border-radius:8px; padding:10px 12px; font-size:11.5px; line-height:1.5; white-space:pre-wrap;
+    color:#a9c7e0;
+  }
+  .fwname{font-size:13px; color:var(--blue); font-weight:700; text-align:center; margin-bottom:6px}
+  .foot{padding:10px 24px 18px; text-align:center; font-size:11px; color:var(--muted)}
+  a{color:var(--blue); text-decoration:none}
+  .warn{background:#2a1c02; border:1px solid #6b4a00; color:var(--amber); padding:8px 10px; border-radius:8px; font-size:12px; margin-top:12px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <h1>CARDPUTER-ADV FLASHER</h1>
+    <p>M5Stack Cardputer-ADV · ESP32-S3 · browser flasher</p>
+  </div>
+  <div class="body">
+
+    <!-- 1. CONNECT -->
+    <section id="screen-connect" class="screen active">
+      <div class="big-msg">
+        <div class="icon">🔌</div>
+        <h2>Please connect your M5Stack Cardputer-ADV</h2>
+        <p>Plug it into USB, then press Connect and pick its serial port.</p>
+      </div>
+      <div id="nosupport" class="warn" hidden>
+        Web Serial isn't available in this browser. Use <b>Chrome</b> or <b>Edge</b> on desktop (not mobile/Firefox/Safari).
+      </div>
+      <button id="btn-connect" class="primary">CONNECT</button>
+      <div id="connect-status" class="status"></div>
+    </section>
+
+    <!-- 2. CHOOSE -->
+    <section id="screen-choose" class="screen">
+      <div class="big-msg">
+        <div class="icon">✅</div>
+        <h2>What do you want to flash?</h2>
+        <p id="chip-line">Connected.</p>
+      </div>
+      <div class="choices">
+        <button class="choice beta" id="btn-beta">
+          <span class="tag">🧪</span>
+          <span><b>Beta</b><small>Latest build from the Beta_Firmware folder — newest features, may be rough.</small></span>
+        </button>
+        <button class="choice stable" id="btn-stable">
+          <span class="tag">📦</span>
+          <span><b>Stable</b><small>Latest published GitHub Release — tested build.</small></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 3. FLASH -->
+    <section id="screen-flash" class="screen">
+      <div id="fwname" class="fwname"></div>
+      <div class="bar-wrap"><div id="bar" class="bar"></div></div>
+      <div id="pct" class="pct">0%</div>
+      <div id="log" class="log"></div>
+      <div id="flash-status" class="status busy">Preparing…</div>
+      <button id="btn-again" class="primary" hidden>FLASH ANOTHER / RECONNECT</button>
+    </section>
+
+  </div>
+  <div class="foot">
+    Do not unplug while flashing. Trouble connecting? Hold <b>G0/BOOT</b>, tap reset, release.
+  </div>
+</div>
+
+<script type="module">
+import { ESPLoader, Transport } from "https://esm.sh/esptool-js@0.6.0";
+
+// --- config: point at THIS repo (branch = Main) ---
+const REPO = "ElicoftZ/Flipper-Zero-meets-M5Stack-Cardputer";
+const BRANCH = "Main";
+const BETA_BIN = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/Beta_Firmware/Flipper-cardputer_adv-merged.bin`;
+const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+const FLASH_OFFSET = 0; // merged image (bootloader+partition+app) starts at 0x0
+
+const $ = (id) => document.getElementById(id);
+const show = (id) => document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === id));
+
+let transport = null, esploader = null, device = null;
+
+const logEl = $("log");
+function logLine(t){ logEl.textContent += t; logEl.scrollTop = logEl.scrollHeight; }
+const terminal = {
+  clean(){ logEl.textContent = ""; },
+  writeLine(d){ logLine(d + "\n"); },
+  write(d){ logLine(d); },
+};
+
+// ---- 1. connect ----
+if(!("serial" in navigator)){ $("nosupport").hidden = false; $("btn-connect").disabled = true; }
+
+$("btn-connect").onclick = async () => {
+  const st = $("connect-status"); st.className = "status busy"; st.textContent = "Requesting serial port…";
+  try {
+    device = await navigator.serial.requestPort();
+    transport = new Transport(device, true);
+    esploader = new ESPLoader({ transport, baudrate: 921600, terminal, debugLogging: false });
+    st.textContent = "Connecting to the board…";
+    const chip = await esploader.main();      // resets to bootloader, loads stub, detects chip
+    $("chip-line").textContent = "Detected: " + chip;
+    if (!String(chip).includes("ESP32-S3")) {
+      $("chip-line").innerHTML += " ⚠️ this doesn't look like a Cardputer-ADV (ESP32-S3).";
+    }
+    show("screen-choose");
+  } catch (e) {
+    st.className = "status err";
+    st.textContent = (e && e.message) ? e.message : "Could not connect. Re-plug the device and try again.";
+    try { await transport?.disconnect(); } catch {}
+    transport = esploader = device = null;
+  }
+};
+
+// ---- 2. choose -> 3. flash ----
+$("btn-beta").onclick   = () => startFlash("Beta", () => resolveBeta());
+$("btn-stable").onclick = () => startFlash("Stable", () => resolveStable());
+
+async function resolveBeta(){ return { url: BETA_BIN, name: "Beta (Beta_Firmware)" }; }
+
+async function resolveStable(){
+  const r = await fetch(RELEASES_API, { headers: { "Accept": "application/vnd.github+json" } });
+  if (r.status === 404) throw new Error("No published Stable release yet — use Beta for now.");
+  if (!r.ok) throw new Error("GitHub release lookup failed (" + r.status + ").");
+  const rel = await r.json();
+  const asset = (rel.assets || []).find(a => /\.bin$/i.test(a.name)) ;
+  if (!asset) throw new Error("Latest release has no .bin asset.");
+  return { url: asset.browser_download_url, name: `Stable ${rel.tag_name} — ${asset.name}` };
+}
+
+function setProgress(frac){
+  const p = Math.max(0, Math.min(100, Math.round(frac * 100)));
+  $("bar").style.width = p + "%"; $("pct").textContent = p + "%";
+}
+
+async function startFlash(label, resolver){
+  show("screen-flash");
+  logEl.textContent = ""; setProgress(0);
+  const fs = $("flash-status"); fs.className = "status busy";
+  $("btn-again").hidden = true;
+  $("fwname").textContent = label + " firmware";
+  try {
+    fs.textContent = "Locating " + label + " firmware…";
+    const { url, name } = await resolver();
+    $("fwname").textContent = name;
+    logLine("Downloading: " + url + "\n");
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("Download failed (" + resp.status + ").");
+    const buf = await resp.arrayBuffer();
+    logLine("Downloaded " + (buf.byteLength/1024/1024).toFixed(2) + " MB\n");
+    const data = toBinaryString(buf);
+
+    fs.textContent = "Flashing… do not unplug.";
+    await esploader.writeFlash({
+      fileArray: [{ data, address: FLASH_OFFSET }],
+      flashSize: "8MB", flashMode: "dio", flashFreq: "80m",
+      eraseAll: false, compress: true,
+      reportProgress: (_i, written, total) => setProgress(written / total),
+    });
+    setProgress(1);
+    logLine("\nResetting device…\n");
+    try { await esploader.after("hard_reset"); }
+    catch { logLine("(auto-reset unavailable — unplug and replug to boot the new firmware)\n"); }
+
+    fs.className = "status ok";
+    fs.textContent = "✅ Flash successful — your Cardputer-ADV is ready!";
+    logLine("\nDONE. The device is rebooting into the new firmware.\n");
+  } catch (e) {
+    fs.className = "status err";
+    fs.textContent = (e && e.message) ? e.message : "Flash failed.";
+    logLine("\nERROR: " + (e && e.message ? e.message : e) + "\n");
+  } finally {
+    $("btn-again").hidden = false;
+  }
+}
+
+$("btn-again").onclick = () => location.reload();
+
+// ArrayBuffer -> latin1 binary string (what esptool-js expects), chunked.
+function toBinaryString(buf){
+  const u8 = new Uint8Array(buf);
+  let s = ""; const CH = 0x8000;
+  for (let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  return s;
+}
+</script>
+</body>
+</html>
