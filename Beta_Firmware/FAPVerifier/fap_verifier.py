@@ -226,6 +226,24 @@ def check_source_compatibility(src_dir):
     overall = worst(*[r[1] for r in results])
     return {"app": app_name, "arm": False, "results": results, "overall": overall}
 
+def check_source_repo(root_dir):
+    # A repo may hold ONE app or be a monorepo of many (e.g. flipperzero-good-faps).
+    # Find every application.fam and verify each app scoped to its OWN folder — a
+    # whole-repo scan would aggregate every module/pin any sub-app uses and always FAIL.
+    app_dirs = []
+    for cur, dirs, files in os.walk(root_dir):
+        if "application.fam" in files:
+            app_dirs.append(cur)
+            dirs[:] = []  # don't descend into an app's own subfolders
+    if len(app_dirs) <= 1:
+        # single app (or no manifest → best-effort whole-tree scan)
+        return check_source_compatibility(app_dirs[0] if app_dirs else root_dir)
+    apps = [check_source_compatibility(d) for d in app_dirs]
+    apps.sort(key=lambda a: (-_RANK[a["overall"]], a["app"].lower()))  # worst first
+    overall = worst(*[a["overall"] for a in apps])
+    return {"multi": True, "app": os.path.basename(root_dir.rstrip("/\\")),
+            "apps": apps, "overall": overall, "arm": False, "results": []}
+
 def verify(path):
     fap = parse_fap(path)
     manifest = parse_manifest(fap["fapmeta"])
@@ -470,8 +488,8 @@ class FAPVerifierGUI:
                 contents = os.listdir(temp_dir)
                 src_path = os.path.join(temp_dir, contents[0]) if contents else temp_dir
                 
-                # Scan source code
-                r = check_source_compatibility(src_path)
+                # Scan source code (repo-aware: one app or a monorepo of many)
+                r = check_source_repo(src_path)
             else:
                 # Local FAP
                 if not os.path.exists(target):
@@ -522,7 +540,14 @@ class FAPVerifierGUI:
         # Update Footer status
         color = GREEN_GLOW if r["overall"] == OK else (RED_GLOW if r["overall"] == FAIL else "#ffaa00")
         self.update_status(f"OVERALL PORTABILITY: {r['overall']}", color)
-        
+
+        for widget in self.results_frame.winfo_children():
+            widget.destroy()
+
+        if r.get("multi"):
+            self.display_multi(r)
+            return
+
         # Render Categories inside results frame
         for cat, st, detail, note in r["results"]:
             card = tk.Frame(self.results_frame, bg=BG_COLOR, highlightbackground=NEON_BLUE_DARK, highlightthickness=1)
@@ -547,6 +572,48 @@ class FAPVerifierGUI:
             if note:
                 nt = tk.Label(info_frame, text=f"• {note}", fg=MUTED_TEXT, bg=BG_COLOR, font=("Consolas", 7, "italic"), anchor="w", wraplength=320, justify="left")
                 nt.pack(fill=tk.X)
+
+    def display_multi(self, r):
+        apps = r["apps"]
+        npass = sum(1 for a in apps if a["overall"] == OK)
+        nwarn = sum(1 for a in apps if a["overall"] == WARN)
+        nfail = sum(1 for a in apps if a["overall"] == FAIL)
+
+        tk.Label(self.results_frame,
+                 text=f"{r['app']}  —  {len(apps)} apps   {npass} PASS / {nwarn} WARN / {nfail} FAIL",
+                 fg=TEXT_COLOR, bg=CANVAS_BG, font=("Consolas", 9, "bold")).pack(anchor="w", padx=4, pady=(0, 4))
+
+        # Scrollable per-app list (a monorepo can have dozens of apps)
+        wrap = tk.Frame(self.results_frame, bg=CANVAS_BG)
+        wrap.pack(fill=tk.BOTH, expand=True)
+        canv = tk.Canvas(wrap, bg=CANVAS_BG, highlightthickness=0)
+        sb = tk.Scrollbar(wrap, orient="vertical", command=canv.yview)
+        inner = tk.Frame(canv, bg=CANVAS_BG)
+        inner.bind("<Configure>", lambda e: canv.configure(scrollregion=canv.bbox("all")))
+        canv.create_window((0, 0), window=inner, anchor="nw", width=415)
+        canv.configure(yscrollcommand=sb.set)
+        canv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Bind the wheel only while the pointer is over the list, and unbind on
+        # leave so a later single-app view doesn't scroll a destroyed canvas.
+        def _wheel(e):
+            canv.yview_scroll(int(-e.delta / 120), "units")
+        canv.bind("<Enter>", lambda e: canv.bind_all("<MouseWheel>", _wheel))
+        canv.bind("<Leave>", lambda e: canv.unbind_all("<MouseWheel>"))
+
+        for a in apps:
+            st = a["overall"]
+            bc = GREEN_GLOW if st == OK else (RED_GLOW if st == FAIL else "#ffaa00")
+            row = tk.Frame(inner, bg=BG_COLOR, highlightbackground=NEON_BLUE_DARK, highlightthickness=1)
+            row.pack(fill=tk.X, pady=2, padx=2)
+            tk.Label(row, text=st, fg=BG_COLOR, bg=bc, font=("Consolas", 8, "bold"), width=6).pack(side=tk.LEFT, padx=4, pady=4)
+            info = tk.Frame(row, bg=BG_COLOR)
+            info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+            tk.Label(info, text=a["app"], fg=TEXT_COLOR, bg=BG_COLOR, font=("Consolas", 8, "bold"), anchor="w").pack(fill=tk.X)
+            issues = ", ".join(f"{c}: {s}" for c, s, _, _ in a["results"] if s != OK) or "all checks pass"
+            tk.Label(info, text=issues, fg=MUTED_TEXT, bg=BG_COLOR, font=("Consolas", 7), anchor="w",
+                     wraplength=330, justify="left").pack(fill=tk.X)
 
 def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "--check":
@@ -584,15 +651,26 @@ def main():
                 
                 contents = os.listdir(temp_dir)
                 src_path = os.path.join(temp_dir, contents[0]) if contents else temp_dir
-                r = check_source_compatibility(src_path)
+                r = check_source_repo(src_path)
             else:
                 r = verify(target)
-                
-            print(f"App: {r['app']}  Overall: {r['overall']}")
-            for cat, st, detail, note in r["results"]:
-                print(f"[{st}] {cat}: {detail}")
-                if note:
-                    print(f"      * {note}")
+
+            if r.get("multi"):
+                apps = r["apps"]
+                npass = sum(1 for a in apps if a["overall"] == OK)
+                nwarn = sum(1 for a in apps if a["overall"] == WARN)
+                nfail = sum(1 for a in apps if a["overall"] == FAIL)
+                print(f"Repo: {r['app']}  Apps: {len(apps)}  "
+                      f"({npass} PASS / {nwarn} WARN / {nfail} FAIL)  Overall: {r['overall']}")
+                for a in apps:
+                    issues = ", ".join(f"{c}:{s}" for c, s, _, _ in a["results"] if s != OK) or "all pass"
+                    print(f"  [{a['overall']}] {a['app']}: {issues}")
+            else:
+                print(f"App: {r['app']}  Overall: {r['overall']}")
+                for cat, st, detail, note in r["results"]:
+                    print(f"[{st}] {cat}: {detail}")
+                    if note:
+                        print(f"      * {note}")
             return 0
         except Exception as e:
             print(f"Error: {e}")
