@@ -377,11 +377,32 @@ class FAPCompilerGUI:
         if not extract_and_move(zip_path, target_dir):
             return False
             
+        # Locate the app manifest. Single-app repos have it at the root; some put
+        # the app in a subfolder; monorepos (e.g. flipperzero-good-faps) have MANY.
+        # The compiler builds ONE app, so: root -> use it; one in a subfolder ->
+        # use it; multiple -> stop and list them (don't dump a whole collection).
         manifest_path = os.path.join(target_dir, "application.fam")
         if not os.path.exists(manifest_path):
-            print("Error: Target directory does not contain an application.fam manifest file.")
-            return False
-            
+            found = []
+            for cur, dirs, files in os.walk(target_dir):
+                if "application.fam" in files:
+                    found.append(os.path.join(cur, "application.fam"))
+                    dirs[:] = []
+            if len(found) == 1:
+                manifest_path = found[0]
+                print(f"Found app manifest in subfolder: {os.path.relpath(manifest_path, target_dir)}")
+            elif not found:
+                print("Error: no application.fam found anywhere in the repository.")
+                shutil.rmtree(target_dir, ignore_errors=True)
+                return False
+            else:
+                print(f"This is a monorepo with {len(found)} apps — the compiler builds ONE app.")
+                print("Point it at a single app instead (a single-app repo, or a subfolder zip). Apps found:")
+                for m in found:
+                    print(f"  - {os.path.relpath(os.path.dirname(m), target_dir)}")
+                shutil.rmtree(target_dir, ignore_errors=True)
+                return False
+
         appid = parse_appid_from_manifest(manifest_path)
         if not appid:
             print("Error: Could not parse appid from application.fam.")
