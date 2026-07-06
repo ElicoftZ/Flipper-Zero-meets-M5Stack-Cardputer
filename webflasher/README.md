@@ -16,10 +16,15 @@ log + progress bar → *"Flash successful"*.
 - Must be served over **HTTPS** (GitHub Pages is HTTPS) or `http://localhost`.
 
 ## Host it on GitHub Pages
-1. Repo → **Settings → Pages**.
-2. **Source:** *Deploy from a branch* → **Branch: `Main`** → **/(root)** → Save.
-3. Wait a minute, then open:
-   `https://<user>.github.io/Flipper-Zero-meets-M5Stack-Cardputer/webflasher/`
+This repo is ~500 MB, so the default "Deploy from a branch" mode fails at the deploy
+step. Use the included Actions workflow (`.github/workflows/deploy-pages.yml`), which
+publishes **only this folder**:
+
+1. Repo → **Settings → Pages** → **Source: `GitHub Actions`** (NOT "Deploy from a branch").
+2. Push to `Main` (or run the *Deploy web flasher to Pages* workflow manually from the
+   Actions tab). It deploys in ~30 s.
+3. Open the Pages URL (the flasher is at the site **root**):
+   `https://<user>.github.io/Flipper-Zero-meets-M5Stack-Cardputer/`
 
 ## If you rename the default branch
 The Beta/Stable URLs in `index.html` reference the `Main` branch and this repo. If

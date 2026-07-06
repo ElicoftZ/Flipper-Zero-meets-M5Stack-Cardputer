@@ -1,0 +1,45 @@
+name: Deploy web flasher to Pages
+
+# The default "Deploy from a branch" Pages mode tries to Jekyll-build and deploy the
+# WHOLE firmware repo (~500 MB), which fails at the deploy step. This workflow
+# publishes ONLY the webflasher/ folder, so the site is tiny and deploys reliably.
+# Requires: repo Settings -> Pages -> Source = "GitHub Actions".
+
+on:
+  push:
+    branches: [Main]
+    paths:
+      - "webflasher/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout (only the flasher)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: webflasher
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload webflasher as the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: webflasher
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
