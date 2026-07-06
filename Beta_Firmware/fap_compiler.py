@@ -10,7 +10,7 @@ import threading
 import queue
 import time
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 
 # Paths
 if getattr(sys, 'frozen', False):
@@ -211,6 +211,27 @@ class FAPCompilerGUI:
         if fpath:
             self.input_entry.delete(0, tk.END)
             self.input_entry.insert(0, fpath)
+
+    def confirm_repo(self, repo_url):
+        # Ask on the main thread; block the compiler worker thread until answered.
+        # Guards against downloading + compiling an unexpected/malicious repo,
+        # especially the auto-located one from a bare .fap-name search.
+        result = {"ok": False}
+        done = threading.Event()
+        def ask():
+            try:
+                result["ok"] = messagebox.askyesno(
+                    "Confirm Repository",
+                    "About to DOWNLOAD and COMPILE this source into your firmware:\n\n"
+                    f"{repo_url}\n\n"
+                    "This builds third-party code as part of your firmware image. "
+                    "Only continue if you trust this repository.\n\nProceed with build?",
+                    icon="warning", parent=self.root)
+            finally:
+                done.set()
+        self.root.after(0, ask)
+        done.wait()
+        return result["ok"]
             
     def update_status(self, text, color=TEXT_COLOR):
         self.status_lbl.configure(text=text, fg=color)
@@ -334,7 +355,12 @@ class FAPCompilerGUI:
             
         target_dir = os.path.join(APPS_USER_DIR, folder_name)
         print(f"Target directory: {target_dir}")
-        
+
+        # Confirm the resolved source before downloading + compiling it.
+        if not self.confirm_repo(repo_url):
+            print("Build cancelled: repository not confirmed by user.")
+            return False
+
         zip_path = None
         if repo_url.startswith("http://") or repo_url.startswith("https://"):
             zip_path = self.download_zip_from_github(repo_url, APPS_USER_DIR)
