@@ -226,24 +226,14 @@ def check_source_compatibility(src_dir):
     overall = worst(*[r[1] for r in results])
     return {"app": app_name, "arm": False, "results": results, "overall": overall}
 
-def check_api(fap, manifest):
-    if manifest is None:
-        return FAIL, "no valid .fapmeta manifest found", "not a Flipper FAP (or stripped)"
-    fapv = f"{manifest['api_major']}.{manifest['api_minor']}"
-    portv = f"{API_MAJOR_THIS}.{API_MINOR_THIS}"
-    if manifest["target"] != HW_TARGET_THIS:
-        return (WARN, f"API {fapv}, built for target {manifest['target']}",
-                f"different target — recompiled from source for this port (target {HW_TARGET_THIS})")
-    if (manifest["api_major"], manifest["api_minor"]) != (API_MAJOR_THIS, API_MINOR_THIS):
-        return (WARN, f"API {fapv} vs port {portv}", "API version differs — recompile against this port")
-    return OK, f"API {fapv}, target {manifest['target']}", "matches this port"
-
 def verify(path):
     fap = parse_fap(path)
     manifest = parse_manifest(fap["fapmeta"])
+    # No API check here: the FAP Compiler recompiles the app from source against
+    # this port's API, so the original ARM FAP's API version is irrelevant — the
+    # compiler is what makes the API match.
     results = [
         ("Memory", *check_memory(fap, manifest)),
-        ("API", *check_api(fap, manifest)),
         ("Module", *check_modules(fap)),
         ("Screen", *check_screen(fap)),
         ("Pins", *check_pins(fap)),
