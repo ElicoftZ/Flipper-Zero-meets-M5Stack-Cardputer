@@ -442,17 +442,25 @@ class FAPCompilerGUI:
         # gets a clear "unknown symbol" list up front instead of a cryptic build
         # error. Heuristic (may miss macros/types) — the build is authoritative,
         # so we warn and continue; a real failure is confirmed + named below.
-        print("\n[Compatibility] Checking furi/HAL calls against Cardputer-ADV firmware...")
-        unknown = precheck_compatibility(os.path.dirname(manifest_path))
+        print("\n[Compatibility] Checking furi/HAL calls + headers against Cardputer-ADV firmware...")
+        app_src_dir = os.path.dirname(manifest_path)
+        unknown = precheck_compatibility(app_src_dir)
+        missing_hdrs = precheck_missing_headers(app_src_dir)
+        if missing_hdrs:
+            print(f"  WARNING: {len(missing_hdrs)} header(s) NOT provided by this port "
+                  "(wrong path or not ported):")
+            for h in missing_hdrs:
+                print(f"      - #include <{h}>")
         if unknown:
-            print(f"  WARNING: {len(unknown)} call(s) NOT found in this firmware "
+            print(f"  WARNING: {len(unknown)} furi/HAL call(s) NOT found in this firmware "
                   "(this port implements a subset of Flipper's API):")
             for s in unknown:
                 print(f"      - {s}")
-            print("  These will most likely fail the build. Trying anyway; if it "
-                  "fails, the exact cause is confirmed below.")
+        if missing_hdrs or unknown:
+            print("  This will most likely FAIL the build. Trying anyway; if it fails, "
+                  "the exact cause is confirmed below.")
         else:
-            print("  OK: every furi/HAL call resolves to a symbol present in this firmware.")
+            print("  OK: furi/HAL calls + Flipper headers all resolve in this firmware.")
 
         print("\nClean build cache for compilation...")
         cache_dir = os.path.join(ROOT_DIR, f"build_cardputer_adv/esp-idf/main/CMakeFiles/esp32_fam_app_{appid}.dir")
@@ -741,6 +749,70 @@ def precheck_compatibility(app_dir):
                 except Exception:
                     pass
     return sorted(s for s in used if s not in known)
+
+# Header namespaces that belong to ESP-IDF / the toolchain / bundled libs — we
+# can't (and shouldn't) resolve these against the firmware source, so skip them.
+_EXTERNAL_HDR_NS = {
+    "driver", "freertos", "soc", "hal", "xtensa", "riscv", "sys", "mbedtls",
+    "lwip", "esp_wifi", "esp_event", "esp_netif", "nvs_flash", "spi_flash",
+    "sdmmc", "rom", "newlib", "bootloader_support", "esp_hw_support", "esp_lcd",
+    "esp_timer", "freertos", "arpa", "netinet",
+}
+_KNOWN_HEADER_SUFFIXES = None
+
+def collect_known_headers():
+    """All include-able path suffixes of headers the firmware source provides."""
+    global _KNOWN_HEADER_SUFFIXES
+    if _KNOWN_HEADER_SUFFIXES is not None:
+        return _KNOWN_HEADER_SUFFIXES
+    suffixes = set()
+    roots = [os.path.join(ROOT_DIR, d)
+             for d in ("components", "applications", "targets", "managed_components")]
+    for r in roots:
+        if not os.path.isdir(r):
+            continue
+        for cur, _, files in os.walk(r):
+            parts_base = cur.replace("\\", "/").split("/")
+            for fn in files:
+                if fn.endswith((".h", ".hpp")):
+                    parts = parts_base + [fn]
+                    for i in range(len(parts) - 1, -1, -1):
+                        suffixes.add("/".join(parts[i:]))
+    _KNOWN_HEADER_SUFFIXES = suffixes
+    return suffixes
+
+def precheck_missing_headers(app_dir):
+    """Return namespaced Flipper headers the app includes that the port lacks.
+    Bare (libc/IDF) and ESP-IDF-namespaced headers are skipped to avoid false
+    positives — so this only fires on real 'wrong path / not ported' cases."""
+    known = collect_known_headers()
+    if not known:
+        return []
+    rx = re.compile(r'#include\s*<([^>]+\.h(?:pp)?)>')
+    missing, seen = [], set()
+    for cur, _, files in os.walk(app_dir):
+        for fn in files:
+            if fn.endswith((".c", ".h", ".cpp", ".hpp")):
+                try:
+                    txt = open(os.path.join(cur, fn), encoding="utf-8", errors="ignore").read()
+                except Exception:
+                    continue
+                for m in rx.finditer(txt):
+                    inc = m.group(1).strip()
+                    if inc in seen or "/" not in inc:
+                        continue  # bare headers: can't tell app vs system, skip
+                    ns = inc.split("/", 1)[0]
+                    if ns in _EXTERNAL_HDR_NS or ns.startswith("esp"):
+                        continue
+                    if inc in known:
+                        continue
+                    # Flipper's build adds extra include roots (notably lib/); accept
+                    # a lib/-prefixed include if the un-prefixed path resolves.
+                    if inc.startswith("lib/") and inc[4:] in known:
+                        continue
+                    seen.add(inc)
+                    missing.append(inc)
+    return sorted(missing)
 
 def summarize_build_failure(output_text):
     """Pull the specific unknown symbols / missing headers out of build output."""
