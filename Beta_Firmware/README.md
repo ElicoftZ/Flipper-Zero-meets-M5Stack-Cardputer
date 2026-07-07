@@ -52,10 +52,13 @@ Built: 2026-07-06
   - (USB-UART bridge deferred to a later build.)
 - **Readable idle backlight** — the panel can't display below ~85% backlight, so
   the idle/dim floor is clamped to ~86% (idle no longer goes black).
-- **Idle light sleep** — after 2 min with no input, the device enters ESP32 light
-  sleep (screen off, CPU halted, low power). Wakes on any key or the power button;
-  a timer fallback force-wakes it so it can never get stuck asleep. Inhibited while
-  USB is connected (keeps the console/flashing port alive).
+- **Idle light sleep (app-aware)** — after 2 min with no input the device enters
+  ESP32 light sleep (screen off, CPU halted, low power) **only when idling at the
+  desktop / dolphin / menu**. If an app or tool is running (e.g. Bluetooth, a scan,
+  recording), it does **not** sleep — halting the CPU would disrupt it; instead the
+  backlight just dims to the readable ~89% floor and the app keeps running, with any
+  keypress restoring full brightness. Wakes on any key or the power button; a timer
+  fallback force-wakes it. Also inhibited while USB is connected.
 
 ## Flash instructions
 Put the ESP32-S3 in the right mode and flash at offset `0x0`.
