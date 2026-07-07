@@ -354,6 +354,56 @@ def verify(path):
     is_arm = fap["machine"] == 0x28
     return {"app": app_name, "arm": is_arm, "results": results, "overall": overall}
 
+
+def _http_get(url, dest):
+    req = urllib.request.Request(url, headers={'User-Agent': 'AntigravityVerifier/1.0'})
+    with urllib.request.urlopen(req) as resp, open(dest, 'wb') as out:
+        shutil.copyfileobj(resp, out)
+
+
+def fetch_source(target, work_dir):
+    """Download+extract a GitHub URL (repo root OR /tree/BRANCH/sub/folder), a .zip
+    URL, or a local .zip into work_dir; return the path to verify. Tree links resolve
+    to the named branch + subfolder so a single app inside a monorepo works."""
+    os.makedirs(work_dir, exist_ok=True)
+    zip_path = os.path.join(work_dir, "_src.zip")
+    subpath = ""
+    is_url = target.startswith("http://") or target.startswith("https://")
+    if is_url and "github.com" in target.lower() and not target.lower().endswith(".zip") \
+            and port_compat is not None:
+        gh = port_compat.parse_github(target)
+        if not gh:
+            raise Exception("Unrecognized GitHub URL.")
+        subpath = gh["subpath"]
+        got = False
+        for zu in port_compat.github_zip_urls(gh["owner"], gh["repo"], gh["branch"]):
+            try:
+                _http_get(zu, zip_path)
+                got = True
+                break
+            except Exception:
+                continue
+        if not got:
+            raise Exception("Could not download the repository archive (branch not found?).")
+    elif is_url:
+        _http_get(target, zip_path)
+    elif os.path.exists(target) and target.lower().endswith(".zip"):
+        shutil.copy(target, zip_path)
+    else:
+        raise Exception("Invalid input (not a URL, .zip, or existing file).")
+
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        zf.extractall(work_dir)
+    os.remove(zip_path)
+    tops = [d for d in os.listdir(work_dir) if os.path.isdir(os.path.join(work_dir, d))]
+    src = os.path.join(work_dir, tops[0]) if tops else work_dir
+    if subpath:
+        cand = os.path.join(src, *subpath.split("/"))
+        if not os.path.isdir(cand):
+            raise Exception(f"Subfolder '{subpath}' not found in the repository.")
+        src = cand
+    return src
+
 # ------------------------------------------------------------- GUI Theme ------------------
 BG_COLOR = "#020813"
 CANVAS_BG = "#050B14"
@@ -436,6 +486,10 @@ class FAPVerifierGUI:
         
         self.verify_btn = tk.Button(self.control_frame, text="VERIFY", bg=NEON_BLUE_DARK, fg=TEXT_COLOR, activebackground=NEON_BLUE, activeforeground=BG_COLOR, font=("Consolas", 9, "bold"), bd=1, relief=tk.FLAT, command=self.start_verification)
         self.verify_btn.pack(side=tk.RIGHT, padx=5)
+
+        # Browse for a local .fap or .zip to verify.
+        self.browse_btn = tk.Button(self.control_frame, text="BROWSE", bg=BG_COLOR, fg=NEON_BLUE, activebackground=NEON_BLUE_DARK, activeforeground=TEXT_COLOR, font=("Consolas", 9, "bold"), bd=1, relief=tk.FLAT, command=self.browse_file)
+        self.browse_btn.pack(side=tk.RIGHT, padx=5)
         
         self.canvas.create_window(238, 140, window=self.control_frame, width=440, tags="input_window")
         
@@ -481,6 +535,17 @@ class FAPVerifierGUI:
         self.root.overrideredirect(True)
         self.root.unbind("<FocusIn>")
         
+    def browse_file(self):
+        fpath = filedialog.askopenfilename(
+            title="Pick a .fap or .zip to verify",
+            filetypes=[("Flipper app or source zip", "*.fap *.zip"),
+                       ("Flipper app package", "*.fap"),
+                       ("Source zip", "*.zip"),
+                       ("All files", "*.*")])
+        if fpath:
+            self.input_entry.delete(0, tk.END)
+            self.input_entry.insert(0, fpath)
+
     def clear_placeholder(self, event):
         if "Enter GitHub" in self.input_entry.get():
             self.input_entry.delete(0, tk.END)
@@ -570,25 +635,12 @@ class FAPVerifierGUI:
         # Temp dir for extraction if it's a URL or ZIP
         temp_dir = None
         try:
-            if target.startswith("http://") or target.startswith("https://") or target.endswith(".zip"):
+            if target.startswith("http://") or target.startswith("https://") or target.lower().endswith(".zip"):
                 self.update_status("DOWNLOADING SOURCE...", NEON_BLUE)
-                zip_path = self.download_target(target)
-                if not zip_path:
-                    self.root.after(0, lambda: self.show_error_msg("Failed to download target."))
-                    return
                 temp_dir = os.path.join(SCRIPT_DIR, "_verifier_temp")
-                os.makedirs(temp_dir, exist_ok=True)
-                
-                # Extract
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                os.remove(zip_path)
-                
-                # Get the nested folder inside extraction
-                contents = os.listdir(temp_dir)
-                src_path = os.path.join(temp_dir, contents[0]) if contents else temp_dir
-                
-                # Scan source code (repo-aware: one app or a monorepo of many)
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                # Handles repo roots AND /tree/BRANCH/subfolder deep links.
+                src_path = fetch_source(target, temp_dir)
                 r = check_source_repo(src_path)
             else:
                 # Local FAP
@@ -724,33 +776,11 @@ def main():
         target = sys.argv[2].strip('"').strip("'")
         temp_dir = None
         try:
-            if target.startswith("http://") or target.startswith("https://") or target.endswith(".zip"):
-                zip_path = os.path.join(SCRIPT_DIR, "temp_ver_archive_cli.zip")
-                url = target
-                if "github.com" in url.lower() and not url.lower().endswith(".zip"):
-                    url = url.rstrip("/")
-                    if url.endswith(".git"):
-                        url = url[:-4]
-                    url = f"{url}/archive/refs/heads/main.zip"
-                
-                # Download
-                try:
-                    req = urllib.request.Request(url, headers={'User-Agent': 'AntigravityVerifier/1.0'})
-                    with urllib.request.urlopen(req) as response, open(zip_path, 'wb') as out_file:
-                        shutil.copyfileobj(response, out_file)
-                except Exception:
-                    if "main.zip" in url:
-                        url = url.replace("main.zip", "master.zip")
-                        urllib.request.urlretrieve(url, zip_path)
-                
+            if target.startswith("http://") or target.startswith("https://") or target.lower().endswith(".zip"):
                 temp_dir = os.path.join(SCRIPT_DIR, "_verifier_temp_cli")
-                os.makedirs(temp_dir, exist_ok=True)
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                os.remove(zip_path)
-                
-                contents = os.listdir(temp_dir)
-                src_path = os.path.join(temp_dir, contents[0]) if contents else temp_dir
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                # Handles repo roots AND /tree/BRANCH/subfolder deep links.
+                src_path = fetch_source(target, temp_dir)
                 r = check_source_repo(src_path)
             else:
                 r = verify(target)

@@ -168,6 +168,46 @@ def index_available():
     return len(syms) > 0
 
 
+# ------------------------------------------------------------- GitHub URLs -------
+def parse_github(url):
+    """Parse a GitHub URL into its parts. Handles repo roots AND deep links like
+    https://github.com/OWNER/REPO/tree/BRANCH/sub/folder  (or /blob/...). Returns
+    {owner, repo, branch, subpath} or None. `branch` is None if not in the URL;
+    `subpath` is '' for a repo root."""
+    if not url:
+        return None
+    u = url.strip().strip('"').strip("'")
+    u = re.sub(r"^https?://", "", u).rstrip("/")
+    if u.lower().startswith("www."):
+        u = u[4:]
+    if not u.lower().startswith("github.com/"):
+        return None
+    parts = u.split("/")[1:]  # drop 'github.com'
+    if len(parts) < 2:
+        return None
+    owner, repo = parts[0], parts[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    branch, subpath = None, ""
+    if len(parts) >= 4 and parts[2] in ("tree", "blob"):
+        branch = parts[3]
+        subpath = "/".join(parts[4:]).strip("/")
+    return {"owner": owner, "repo": repo, "branch": branch, "subpath": subpath}
+
+
+def github_zip_urls(owner, repo, branch=None):
+    """Ordered list of archive-zip URLs to try for a repo (branch first if known)."""
+    urls = []
+    tried = set()
+    for b in ([branch] if branch else []) + ["main", "master"]:
+        if b and b not in tried:
+            tried.add(b)
+            urls.append(f"https://github.com/{owner}/{repo}/archive/refs/heads/{b}.zip")
+    urls.append(
+        f"https://api.github.com/repos/{owner}/{repo}/zipball" + (f"/{branch}" if branch else ""))
+    return urls
+
+
 # --------------------------------------------------------------- app scanning ----
 def _iter_app_sources(app_dir):
     for cur, _, files in os.walk(app_dir):

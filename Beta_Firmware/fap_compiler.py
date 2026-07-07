@@ -355,14 +355,26 @@ class FAPCompilerGUI:
                 print(f"Error: Could not automatically locate the source repository for '{app_name}.fap' on GitHub.")
                 return False
                 
-        folder_name = repo_url.rstrip("/").split("/")[-1]
-        if folder_name.endswith(".git"):
-            folder_name = folder_name[:-4]
-        if folder_name.endswith(".zip"):
-            folder_name = folder_name[:-4]
-            
+        # Support GitHub deep links: .../tree/BRANCH/sub/folder selects one app in a
+        # monorepo. Parse the branch + subfolder; we download the branch and extract
+        # only that subfolder.
+        gh = port_compat.parse_github(repo_url) if (port_compat and repo_url.startswith("http")) else None
+        subpath = gh["subpath"] if gh else ""
+        if subpath:
+            folder_name = subpath.rstrip("/").split("/")[-1]
+        elif gh:
+            folder_name = gh["repo"]
+        else:
+            folder_name = repo_url.rstrip("/").split("/")[-1]
+            if folder_name.endswith(".git"):
+                folder_name = folder_name[:-4]
+            if folder_name.endswith(".zip"):
+                folder_name = folder_name[:-4]
+
         target_dir = os.path.join(APPS_USER_DIR, folder_name)
         print(f"Target directory: {target_dir}")
+        if subpath:
+            print(f"Selecting subfolder from monorepo: {subpath}")
 
         # Confirm the resolved source before downloading + compiling it.
         if not self.confirm_repo(repo_url):
@@ -382,7 +394,7 @@ class FAPCompilerGUI:
                 print(f"Error: Invalid input: {repo_url}")
                 return False
                 
-        if not extract_and_move(zip_path, target_dir):
+        if not extract_and_move(zip_path, target_dir, subpath):
             return False
             
         # Locate the app manifest. Single-app repos have it at the root; some put
@@ -544,49 +556,52 @@ class FAPCompilerGUI:
         return None
         
     def download_zip_from_github(self, repo_url, dest_dir):
-        repo_url = repo_url.rstrip("/")
-        if repo_url.endswith(".git"):
-            repo_url = repo_url[:-4]
-            
-        branches = ["main", "master"]
         zip_path = os.path.join(dest_dir, "temp_archive.zip")
         os.makedirs(dest_dir, exist_ok=True)
-        
-        for branch in branches:
+
+        # Branch-aware: a /tree/BRANCH/... link downloads that exact branch.
+        gh = port_compat.parse_github(repo_url) if port_compat else None
+        if gh:
+            urls = port_compat.github_zip_urls(gh["owner"], gh["repo"], gh["branch"])
+        else:
+            base = repo_url.rstrip("/")
+            if base.endswith(".git"):
+                base = base[:-4]
+            urls = [f"{base}/archive/refs/heads/main.zip",
+                    f"{base}/archive/refs/heads/master.zip"]
+
+        for zip_url in urls:
             try:
-                zip_url = f"{repo_url}/archive/refs/heads/{branch}.zip"
                 print(f"Downloading: {zip_url}...")
-                urllib.request.urlretrieve(zip_url, zip_path)
+                req = urllib.request.Request(zip_url, headers={'User-Agent': 'AntigravityPortingTool/1.0'})
+                with urllib.request.urlopen(req) as response, open(zip_path, 'wb') as out_file:
+                    shutil.copyfileobj(response, out_file)
                 return zip_path
             except Exception:
                 continue
-                
-        try:
-            parts = repo_url.split("/")
-            user, repo = parts[-2], parts[-1]
-            zip_url = f"https://api.github.com/repos/{user}/{repo}/zipball"
-            print(f"Downloading API fallback: {zip_url}...")
-            req = urllib.request.Request(zip_url, headers={'User-Agent': 'AntigravityPortingTool/1.0'})
-            with urllib.request.urlopen(req) as response, open(zip_path, 'wb') as out_file:
-                shutil.copyfileobj(response, out_file)
-            return zip_path
-        except Exception as e:
-            print(f"Failed to retrieve repository zip: {e}")
-            return None
+        print("Failed to retrieve repository zip.")
+        return None
 
-def extract_and_move(zip_path, target_dir):
+def extract_and_move(zip_path, target_dir, subpath=""):
     print("Extracting ZIP archive...")
     extract_temp = os.path.join(target_dir, "_temp_extract")
     os.makedirs(extract_temp, exist_ok=True)
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_temp)
-            
+
         contents = os.listdir(extract_temp)
         if not contents:
             return False
-            
+
         extracted_folder = os.path.join(extract_temp, contents[0])
+        if subpath:
+            sub = os.path.join(extracted_folder, *subpath.split("/"))
+            if not os.path.isdir(sub):
+                print(f"Error: subfolder '{subpath}' not found in the repository.")
+                shutil.rmtree(extract_temp, ignore_errors=True)
+                return False
+            extracted_folder = sub
         for item in os.listdir(extracted_folder):
             s = os.path.join(extracted_folder, item)
             d = os.path.join(target_dir, item)
