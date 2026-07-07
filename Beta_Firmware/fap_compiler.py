@@ -435,9 +435,25 @@ class FAPCompilerGUI:
             
         collisions = scan_for_collisions(target_dir)
         update_manifest(manifest_path, collisions)
-        
+
         register_in_fam_config(appid)
-        
+
+        # Pre-flight: flag furi/HAL calls this port doesn't implement, so the user
+        # gets a clear "unknown symbol" list up front instead of a cryptic build
+        # error. Heuristic (may miss macros/types) — the build is authoritative,
+        # so we warn and continue; a real failure is confirmed + named below.
+        print("\n[Compatibility] Checking furi/HAL calls against Cardputer-ADV firmware...")
+        unknown = precheck_compatibility(os.path.dirname(manifest_path))
+        if unknown:
+            print(f"  WARNING: {len(unknown)} call(s) NOT found in this firmware "
+                  "(this port implements a subset of Flipper's API):")
+            for s in unknown:
+                print(f"      - {s}")
+            print("  These will most likely fail the build. Trying anyway; if it "
+                  "fails, the exact cause is confirmed below.")
+        else:
+            print("  OK: every furi/HAL call resolves to a symbol present in this firmware.")
+
         print("\nClean build cache for compilation...")
         cache_dir = os.path.join(ROOT_DIR, f"build_cardputer_adv/esp-idf/main/CMakeFiles/esp32_fam_app_{appid}.dir")
         if os.path.exists(cache_dir):
@@ -459,13 +475,15 @@ class FAPCompilerGUI:
 
         print(f"Running build tool: {cmd}")
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT_DIR)
-        
+
+        output_lines = []
         while True:
             line = process.stdout.readline()
             if not line:
                 break
             print(line, end="")
-            
+            output_lines.append(line)
+
         process.wait()
         if process.returncode == 0:
             print("\n" + "=" * 60)
@@ -476,6 +494,10 @@ class FAPCompilerGUI:
             print("\n" + "=" * 60)
             print(" ERROR: COMPILATION PROCESS RETURNED ERROR.")
             print("=" * 60)
+            # Name the exact unknown symbol(s) / missing header(s) that broke it.
+            reasons = summarize_build_failure("".join(output_lines))
+            if not reasons:
+                print(" (Could not pinpoint a specific unknown symbol — check the log above.)")
             return False
             
     def search_github_source(self, app_name):
@@ -604,6 +626,13 @@ def update_manifest(manifest_path, collisions):
         app_dir = os.path.dirname(manifest_path)
         patch_sound_defines(app_dir)
         
+    # 2. Remove furi from requires
+    if "furi" in content:
+        print("Removing furi dependency from manifest...")
+        content = re.sub(r'["\']furi["\']\s*,?\s*', '', content)
+        modified = True
+
+        
     if collisions:
         print(f"Renaming static symbol collisions: {collisions}")
         dir_name = os.path.basename(os.path.dirname(manifest_path))
@@ -657,6 +686,93 @@ def parse_appid_from_manifest(manifest_path):
         content = f.read()
     match = re.search(r'appid\s*=\s*["\']([^"\']+)["\']', content)
     return match.group(1) if match else None
+
+# ---- API compatibility check ------------------------------------------------
+# This ESP32 port implements only a SUBSET of Flipper's furi / furi_hal API. A
+# stock FAP that calls something the port lacks (e.g. certain USB HID / BLE HAL
+# functions) fails the build with a cryptic "implicit declaration" / "undefined
+# reference". We (1) pre-scan the app's furi/HAL calls against everything the
+# firmware headers actually declare and flag the unknown ones up front, and
+# (2) parse the build output on failure to name the exact offending symbol.
+
+_KNOWN_SYMBOLS = None
+
+def collect_known_symbols():
+    """Every furi_ / furi_hal_ identifier that appears in the firmware's headers."""
+    global _KNOWN_SYMBOLS
+    if _KNOWN_SYMBOLS is not None:
+        return _KNOWN_SYMBOLS
+    syms = set()
+    rx = re.compile(r"\bfuri(?:_hal)?_[a-z0-9_]+\b")
+    roots = [os.path.join(ROOT_DIR, "components"),
+             os.path.join(ROOT_DIR, "applications"),
+             os.path.join(ROOT_DIR, "targets")]
+    for r in roots:
+        if not os.path.isdir(r):
+            continue
+        for cur, _, files in os.walk(r):
+            for fn in files:
+                if fn.endswith((".h", ".hpp")):
+                    try:
+                        with open(os.path.join(cur, fn), "r", encoding="utf-8", errors="ignore") as f:
+                            for m in rx.finditer(f.read()):
+                                syms.add(m.group(0))
+                    except Exception:
+                        pass
+    _KNOWN_SYMBOLS = syms
+    return syms
+
+def precheck_compatibility(app_dir):
+    """Return sorted furi/HAL call names used by the app but not declared anywhere
+    in the firmware headers (i.e. likely-unsupported on Cardputer-ADV)."""
+    known = collect_known_symbols()
+    if not known:
+        print("  (firmware headers not found next to the tool — skipping pre-check)")
+        return []
+    rx_call = re.compile(r"\b(furi(?:_hal)?_[a-z0-9_]+)\s*\(")
+    used = set()
+    for cur, _, files in os.walk(app_dir):
+        for fn in files:
+            if fn.endswith((".c", ".h", ".cpp", ".hpp")):
+                try:
+                    with open(os.path.join(cur, fn), "r", encoding="utf-8", errors="ignore") as f:
+                        for m in rx_call.finditer(f.read()):
+                            used.add(m.group(1))
+                except Exception:
+                    pass
+    return sorted(s for s in used if s not in known)
+
+def summarize_build_failure(output_text):
+    """Pull the specific unknown symbols / missing headers out of build output."""
+    # GCC uses unicode quotes (‘ ’); accept ASCII too.
+    q = r"[`'\"‘’]?"
+    patterns = [
+        (re.compile(r"implicit declaration of function " + q + r"([A-Za-z_][A-Za-z0-9_]*)"),
+         "unknown function (not in this firmware)"),
+        (re.compile(r"undefined reference to " + q + r"([A-Za-z_][A-Za-z0-9_]*)"),
+         "unresolved symbol (not built into firmware)"),
+        (re.compile(r"unknown type name " + q + r"([A-Za-z_][A-Za-z0-9_]*)"),
+         "unknown type"),
+        (re.compile(q + r"([A-Za-z_][A-Za-z0-9_]*)" + q + r" undeclared"),
+         "undeclared identifier / macro"),
+        (re.compile(r"fatal error: ([A-Za-z0-9_./\\-]+\.h(?:pp)?): No such file"),
+         "missing header"),
+    ]
+    found = {}
+    for rx, reason in patterns:
+        for m in rx.finditer(output_text):
+            found.setdefault(m.group(1), reason)
+    if found:
+        print("\n" + "-" * 60)
+        print(" REASON: this app needs things the Cardputer-ADV port does NOT provide:")
+        for sym, reason in sorted(found.items()):
+            print(f"   - {sym}   ({reason})")
+        print("")
+        print(" This ESP32 firmware implements only a subset of Flipper's furi/HAL")
+        print(" API. The items above aren't available here, so the build can't")
+        print(" resolve them. The app would need those APIs ported first.")
+        print("-" * 60)
+    return list(found.keys())
 
 if __name__ == "__main__":
     root = tk.Tk()
