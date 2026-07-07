@@ -19,6 +19,14 @@ if getattr(sys, 'frozen', False):
 else:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Shared, repo-derived compatibility oracle (also used by the FAP Compiler). Lives
+# one level up (Beta_Firmware/); bundled into the exe by PyInstaller at build time.
+sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
+try:
+    import port_compat
+except Exception:  # noqa: BLE001 — tool still runs (compat check degrades to a warn)
+    port_compat = None
+
 # ------------------------------------------------------------------ rules ----
 # M5Stack Cardputer-ADV (ESP32-S3FN8, no PSRAM). Port hardware target = 32.
 HW_TARGET_THIS = 32
@@ -190,20 +198,61 @@ def check_modules(fap):
     parts = [f"{label} ({v[1]})" for label, v in hits.items()]
     return st, "; ".join(parts), "required module(s) listed"
 
-def check_hardware(fap):
-    # STM32 / ARM Cortex-M specific code can't run on the ESP32-S3 (Xtensa) -> FAIL.
-    # Apps that only use the universal Flipper API -> PASS. (Heuristic byte-scan.)
-    blob = fap.get("blob", b"")
-    hits = []
-    for sig in STM_SIGS:
-        if sig in blob:
-            s = sig.decode("ascii", "replace")
-            if s.lower() not in (h.lower() for h in hits):
-                hits.append(s)
-    if hits:
-        return (FAIL, "STM32/ARM-specific: " + ", ".join(hits[:6]),
-                "uses Cortex-M / STM32 low-level code — not portable to ESP32-S3 (Xtensa)")
-    return OK, "universal Flipper API — no STM32/ARM-specific code", "portable to the ESP32 port"
+def check_compatibility(fap):
+    # Replaces the old static STM/ARM-only "Hardware" check. Uses the shared,
+    # repo-derived oracle (port_compat): flags furi/HAL calls + Flipper headers the
+    # CURRENT firmware doesn't provide, plus STM32/ARM-specific code. Because the
+    # "supported" set is derived from the live headers, adding new furi support to
+    # the port makes this pass automatically — no stale list, no false positives.
+    if port_compat is None:
+        # Fallback to the legacy byte-scan if the shared module didn't load.
+        blob = fap.get("blob", b"")
+        hits = [s.decode("ascii", "replace") for s in STM_SIGS if s in blob]
+        if hits:
+            return FAIL, "STM32/ARM-specific: " + ", ".join(hits[:6]), \
+                "Cortex-M / STM32 low-level code — not portable to ESP32-S3 (Xtensa)"
+        return OK, "no STM32/ARM-specific code (compat module unavailable)", \
+            "install port_compat.py next to the tool for the full check"
+
+    src_dir = fap.get("src_dir")
+    if src_dir and port_compat.index_available():
+        r = port_compat.scan_source(src_dir)
+    else:
+        r = port_compat.scan_blob(fap.get("blob", b""))
+        r.setdefault("missing_headers", [])
+
+    unk = r.get("unknown_symbols", [])
+    miss = r.get("missing_headers", [])
+    stm = r.get("stm", [])
+
+    st = OK
+    parts = []
+    if stm:
+        st = worst(st, FAIL)
+        parts.append("STM32/ARM: " + ", ".join(stm[:5]))
+    if miss:
+        st = worst(st, FAIL)
+        parts.append("missing headers: " + ", ".join(miss[:5]))
+    if unk:
+        st = worst(st, FAIL)
+        parts.append("unsupported API: " + ", ".join(unk[:6]))
+
+    if st == OK:
+        if not port_compat.index_available():
+            return WARN, "firmware source not found — could not verify port API", \
+                "run the tool from inside the firmware repo for the full check"
+        return OK, "uses only APIs + headers this port provides", \
+            "portable to the Cardputer-ADV port"
+
+    extra = []
+    if len(unk) > 6:
+        extra.append(f"+{len(unk) - 6} more API")
+    if len(miss) > 5:
+        extra.append(f"+{len(miss) - 5} more header")
+    detail = "  |  ".join(parts)
+    if extra:
+        detail += "  (" + ", ".join(extra) + ")"
+    return st, detail, "not implemented on the Cardputer-ADV port"
 
 def check_screen(fap):
     return OK, "128x64 mono -> rendered on 240x135 colour TFT", "UI scales; no change needed"
@@ -254,13 +303,14 @@ def check_source_compatibility(src_dir):
                 except Exception:
                     pass
 
-    # Stub FAP dictionary for checkers
-    fap = {"data": 1024, "bss": 2048, "text": 8192, "blob": c_bytes}
+    # Stub FAP dictionary for checkers. src_dir lets the compatibility check do a
+    # full source scan (symbols + headers) instead of a byte-scan of the blob.
+    fap = {"data": 1024, "bss": 2048, "text": 8192, "blob": c_bytes, "src_dir": src_dir}
     manifest = {"stack": stack_size}
     
     results = [
         ("Memory", *check_memory(fap, manifest)),
-        ("Hardware", *check_hardware(fap)),
+        ("Compatibility", *check_compatibility(fap)),
         ("Module", *check_modules(fap)),
         ("Screen", *check_screen(fap)),
         ("Pins", *check_pins(fap)),
@@ -294,7 +344,7 @@ def verify(path):
     # compiler is what makes the API match.
     results = [
         ("Memory", *check_memory(fap, manifest)),
-        ("Hardware", *check_hardware(fap)),
+        ("Compatibility", *check_compatibility(fap)),
         ("Module", *check_modules(fap)),
         ("Screen", *check_screen(fap)),
         ("Pins", *check_pins(fap)),
@@ -319,7 +369,14 @@ class FAPVerifierGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("FAP Verifier")
-        self.root.geometry("480x580")
+        
+        # Center on screen
+        w, h = 480, 680
+        ws = root.winfo_screenwidth()
+        hs = root.winfo_screenheight()
+        x = int((ws/2) - (w/2))
+        y = int((hs/2) - (h/2))
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
         self.root.configure(bg=BG_COLOR)
         
         # Borderless window drag setup
@@ -384,7 +441,7 @@ class FAPVerifierGUI:
         
         # 4. Results List Container
         self.results_frame = tk.Frame(self.canvas, bg=CANVAS_BG)
-        self.canvas.create_window(238, 330, window=self.results_frame, width=440, height=270, tags="results_window")
+        self.canvas.create_window(238, 380, window=self.results_frame, width=440, height=370, tags="results_window")
         
         # 5. Footer status
         self.footer = tk.Frame(self.main_container, bg=BG_COLOR, height=40)
@@ -462,7 +519,7 @@ class FAPVerifierGUI:
         self.canvas.delete("anim")
         w, h = self.canvas.winfo_width(), self.canvas.winfo_height()
         if w < 50:
-            w, h = 480, 500
+            w, h = 480, 600
             
         self.canvas.delete("grid")
         for x in range(0, w, 20):
