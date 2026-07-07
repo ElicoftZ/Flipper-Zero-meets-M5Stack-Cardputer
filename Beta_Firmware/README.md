@@ -20,8 +20,18 @@ Built: 2026-07-06
   copy / read), blue while connecting Bluetooth, red/green for battery; off during
   light sleep. Enable it from the lock menu ("Status LED").
 - **Dolphin XP / mood on SD** — level, XP and mood are cached in RTC RAM during use
-  and flushed to the **SD card** after ~1 min idle (avoids internal-flash wear);
-  mood also updates for elapsed off-time on boot.
+  and flushed to the **SD card** ~25 s after activity stops (avoids internal-flash
+  wear); mood also updates for elapsed off-time on boot.
+- **XP rewards per module** (each capped per day):
+  - CC1101 / Sub-GHz — 5 XP (20/day, **shared** with NRF24)
+  - NRF24 — 5 XP (20/day, shared with Sub-GHz)
+  - Infrared — 2 XP built-in emitter, **4 XP** when an external M5Unit IR module is
+    detected (20/day)
+  - WiFi — 2 XP (20/day)
+  - Bluetooth — 1 XP (35/day)
+- **Uptime counts through light sleep** — the on-device uptime (debug view) and CLI
+  `uptime` now use a clock that keeps running while the ESP32 is idle-asleep, so
+  they reflect true "time on" instead of freezing during sleep.
 - **Idle backlight floor raised to ~89%** (the panel reads as black below ~85%).
 
 ## Earlier in this beta line
