@@ -193,7 +193,8 @@ Most applications require database and asset files on an SD card.
 1. Format a MicroSD card to **FAT32**.
 2. Download the SD card files from the releases section or use the starter files:
    [sdcard.zip](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v1.1.5/sdcard.zip)
-3. Extract the contents directly to the root of the MicroSD card and insert it into your Cardputer.
+3. Extract the contents directly to the root of the MicroSD card **OR** sdcard folder in root and place inside of **sdcard** folder [Must put folder name sdcard] and insert it into your Cardputer.
+
 
 ![SD Folder](pic3.png)
 ---
