@@ -30,8 +30,8 @@
 #include "views/wlan_sd_update_view.h"
 
 #define WLAN_APP_TAG "WlanApp"
-#define WLAN_APP_MAX_APS 64
-#define WLAN_APP_MAX_DEVICES 64
+#define WLAN_APP_MAX_APS 32
+#define WLAN_APP_MAX_DEVICES 32
 #define WLAN_APP_SSID_MAX 33
 #define WLAN_APP_PASSWORD_MAX 65
 #define WLAN_APP_HOSTNAME_MAX 32
@@ -98,7 +98,7 @@ typedef enum {
 
 typedef struct WlanNetcut WlanNetcut;
 
-#define WLAN_APP_EVIL_PORTAL_QUEUE_SIZE 8
+#define WLAN_APP_EVIL_PORTAL_QUEUE_SIZE 4
 typedef struct {
     char user[64];
     char pwd[64];
@@ -207,6 +207,7 @@ struct WlanApp {
 
     // Channel-Mode (Capture Handshake / Deauth / Sniffer aus Hauptmenü)
     bool channel_mode_active;     // true → Scenes ignorieren target_ap, arbeiten auf Channel-Ebene
+    bool sniffer_capture_mode;    // true → Sniffer schreibt Frames als .pcap auf SD (Packet Capture)
     uint8_t channel_action_channel; // 1..13, Default 1; in der Scene umschaltbar
     uint8_t hs_channel_pending;     // Vorgeschlagener Channel im Confirm-Dialog
 

@@ -20,6 +20,14 @@ extern "C" {
 
 #define RECORD_BT "bt"
 
+/* Minimum free internal RAM required before bringing up the BLE stack. The
+ * controller + Bluedroid reserve ~64 KB the moment the radio starts; on this
+ * no-PSRAM board (~200 KB total) starting below this threshold OOM-aborts
+ * *inside* ESP-IDF and reboots the firmware. Every enable path checks this and
+ * refuses gracefully instead. Tune on hardware. */
+#define BT_MIN_FREE_INTERNAL (72 * 1024)
+#define BT_MIN_LARGEST_INTERNAL (24 * 1024)
+
 typedef struct Bt Bt;
 
 typedef enum {
@@ -98,6 +106,10 @@ void bt_get_settings(Bt* bt, BtSettings* settings);
  * @return          true if enabled
  */
 bool bt_is_enabled(Bt* bt);
+
+/** Get current BT status (Unavailable/Off/Advertising/Connected). Lightweight
+ * direct read intended for status indicators (e.g. the status LED). */
+BtStatus bt_get_status(Bt* bt);
 
 /** Set BT settings (thread-safe via message queue)
  *

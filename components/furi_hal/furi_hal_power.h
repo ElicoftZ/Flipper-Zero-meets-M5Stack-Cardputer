@@ -34,6 +34,14 @@ void furi_hal_power_shutdown(void);
 void furi_hal_power_off(void);
 FURI_NORETURN void furi_hal_power_reset(void);
 
+/** Enter ESP32 light sleep until a key/button wakes it (screen off, CPU halted,
+ * RAM retained). No-op that returns false if USB is connected (kept awake so the
+ * console/flashing port stays alive). Blocks until wake, then restores the panel.
+ *
+ * @return true if it slept and woke, false if sleep was inhibited (USB present).
+ */
+bool furi_hal_power_light_sleep(void);
+
 bool furi_hal_power_enable_otg(void);
 void furi_hal_power_disable_otg(void);
 bool furi_hal_power_check_otg_fault(void);
@@ -59,6 +67,14 @@ void furi_hal_power_suppress_charge_exit(void);
 
 void furi_hal_power_info_get(PropertyValueCallback callback, char sep, void* context);
 void furi_hal_power_debug_get(PropertyValueCallback callback, void* context);
+
+/** Seconds since boot, INCLUDING time spent in ESP32 light sleep.
+ *
+ * Sourced from esp_timer, which ESP-IDF advances by the measured sleep duration
+ * on wake — unlike the FreeRTOS tick (furi_get_tick), which freezes while the
+ * CPU is halted and would under-count idle-sleep time.
+ */
+uint32_t furi_hal_power_get_uptime_sec(void);
 
 #ifdef __cplusplus
 }

@@ -6,12 +6,15 @@
 #include <furi.h>
 #include <furi_hal_display.h>
 #include <furi_hal_light.h>
+#include <furi_hal_power.h>
 #include <furi_hal_rtc.h>
 #include <furi_hal_speaker.h>
+#include <btshim.h>
 #include <esp_random.h>
 #include <input.h>
 #include <saved_struct.h>
 #include <storage/storage.h>
+#include <loader/loader.h>
 #include "notification_app.h"
 #include "notification_messages.h"
 
@@ -22,6 +25,12 @@
 #define NOTIFICATION_SETTINGS_PATH    INT_PATH(".notification.settings")
 #define NOTIFICATION_SETTINGS_MAGIC   0x42
 #define NOTIFICATION_SETTINGS_VERSION 0x0A
+
+/* Status LED enable flag — its own tiny file so toggling it never invalidates
+ * (resets) the main notification settings above. */
+#define STATUS_LED_PATH    INT_PATH(".statusled.settings")
+#define STATUS_LED_MAGIC   0x53
+#define STATUS_LED_VERSION 0x01
 
 typedef enum {
     NotificationLayerMessage,
@@ -230,6 +239,11 @@ static void notification_process_notification_message(
              * — at full PWM on 8 LEDs they were strobing painfully under high-rate
              * callers (e.g. SubGHz frequency hopper). The visual signal in those
              * apps already comes from on-screen UI; no LED override needed. */
+            /* Status LED mode: an app emitting an LED notification == an action in
+             * progress (scan / spam / copy / read) → show orange for a short hold. */
+            if(app->status_led_on) {
+                app->status_action_until = furi_get_tick() + furi_ms_to_ticks(1500);
+            }
             break;
         case NotificationMessageTypeSoundOn:
             if(!furi_hal_rtc_is_flag_set(FuriHalRtcFlagStealthMode) || force_volume) {
@@ -296,11 +310,40 @@ static void notification_process_internal_message(
     }
 }
 
+/* Idle time before the device drops into ESP32 light sleep (screen off, CPU
+ * halted, wakes on any key). Reset on every input event below. */
+#define NOTIFICATION_SLEEP_IDLE_MS (2 * 60 * 1000)
+
+static void notification_sleep_timer_callback(void* context) {
+    NotificationApp* app = context;
+    /* 2 min with no input → light sleep, but ONLY when idling at the desktop /
+     * dolphin / main menu (loader not locked). If an app or tool is running,
+     * halting the CPU would disrupt it (BLE / USB / recording / timing), so we
+     * skip sleep and leave it running — the backlight has already dimmed to the
+     * readable ~89% floor on idle, and any keypress restores full brightness.
+     * No-op too if USB is connected (handled inside furi_hal_power_light_sleep). */
+    Loader* loader = furi_record_open(RECORD_LOADER);
+    bool app_running = loader_is_locked(loader);
+    furi_record_close(RECORD_LOADER);
+
+    if(!app_running) {
+        /* Blocks here until a key/button (or force-wake fallback) wakes it. */
+        furi_hal_power_light_sleep();
+    }
+    if(app->sleep_timer) {
+        furi_timer_restart(app->sleep_timer, furi_ms_to_ticks(NOTIFICATION_SLEEP_IDLE_MS));
+    }
+}
+
 static void input_event_callback(const void* value, void* context) {
     furi_assert(value);
     furi_assert(context);
 
     NotificationApp* app = context;
+    /* Any input resets the idle-sleep countdown. */
+    if(app->sleep_timer) {
+        furi_timer_restart(app->sleep_timer, furi_ms_to_ticks(NOTIFICATION_SLEEP_IDLE_MS));
+    }
     notification_message(app, &sequence_display_backlight_on);
     /* Keep the WS2812 ring alive on user input. If the idle-off timer already
      * darkened it, re-light fully (resets phase + restarts the effect). If it's
@@ -567,6 +610,8 @@ static void notification_led_effect_tick(void* context) {
  * Also (re)starts the idle-off timer. */
 void notification_apply_led_color(NotificationApp* app) {
     if(!app) return;
+    /* Status LED mode owns the WS2812 — ignore all ambient color/effect writes. */
+    if(app->status_led_on) return;
     /* About to re-light the ring — clear the idle-off marker. */
     app->led_idle_off = false;
     /* Always stop the effect timer; we'll restart for animated effects. */
@@ -623,6 +668,54 @@ static void notification_led_off_timer_cb(void* context) {
     }
     furi_hal_light_set_rgb_all(0, 0, 0);
     app->led_idle_off = true;
+}
+
+/* ─────────────────────────── Status LED ────────────────────────────────────
+ * Drive the WS2812 as a status indicator (lock-menu toggle). Priority:
+ *   action(orange) > Bluetooth connecting(blue) > battery(low=red / ok=green).
+ * Runs on a ~1s periodic timer while enabled; goes dark during light sleep
+ * (furi_hal_power_light_sleep clears it and the CPU is halted so it stays off). */
+static void notification_status_led_tick(void* context) {
+    NotificationApp* app = context;
+    if(!app->status_led_on) return;
+    if(!app->status_bt_rec) app->status_bt_rec = furi_record_open(RECORD_BT);
+
+    uint8_t r = 0, g = 0, b = 0;
+    if(furi_get_tick() < app->status_action_until) {
+        r = 255;
+        g = 45; /* orange = action in progress (scan / spam / copy / read) */
+    } else if(
+        bt_get_status((Bt*)app->status_bt_rec) == BtStatusAdvertising ||
+        bt_get_status((Bt*)app->status_bt_rec) == BtStatusConnected) {
+        b = 255; /* blue = Bluetooth connecting / connected */
+    } else if(furi_hal_power_get_pct() <= 20 && !furi_hal_power_is_charging()) {
+        r = 255; /* red = low battery */
+    } else {
+        g = 255; /* green = battery ok / full */
+    }
+    furi_hal_light_set_rgb_all(r, g, b);
+}
+
+void notification_status_led_set(NotificationApp* app, bool on) {
+    if(!app) return;
+    app->status_led_on = on;
+    uint8_t v = on ? 1 : 0;
+    saved_struct_save(STATUS_LED_PATH, &v, sizeof(v), STATUS_LED_MAGIC, STATUS_LED_VERSION);
+    if(on) {
+        /* Take over the ring: stop the ambient effect/idle-off timers. */
+        if(app->led_effect_timer) furi_timer_stop(app->led_effect_timer);
+        if(app->led_off_timer) furi_timer_stop(app->led_off_timer);
+        if(app->status_led_timer)
+            furi_timer_start(app->status_led_timer, furi_ms_to_ticks(1000));
+        notification_status_led_tick(app); /* apply immediately */
+    } else {
+        if(app->status_led_timer) furi_timer_stop(app->status_led_timer);
+        notification_apply_led_color(app); /* restore the ambient color/effect */
+    }
+}
+
+bool notification_status_led_get(NotificationApp* app) {
+    return app && app->status_led_on;
 }
 
 /* ─────────────────────────── UI color (LCD foreground) ─────────────────────
@@ -733,6 +826,19 @@ static NotificationApp* notification_app_alloc(void) {
         furi_timer_alloc(notification_led_effect_tick, FuriTimerTypePeriodic, app);
     app->ui_spectrum_timer =
         furi_timer_alloc(notification_ui_spectrum_tick, FuriTimerTypePeriodic, app);
+    app->sleep_timer =
+        furi_timer_alloc(notification_sleep_timer_callback, FuriTimerTypeOnce, app);
+    app->status_led_timer =
+        furi_timer_alloc(notification_status_led_tick, FuriTimerTypePeriodic, app);
+    app->status_action_until = 0;
+    app->status_bt_rec = NULL;
+    /* Load the persisted Status LED enable flag now (before the first ambient LED
+     * apply below) so the apply-guard sees the right value. */
+    {
+        uint8_t sl = 0;
+        saved_struct_load(STATUS_LED_PATH, &sl, sizeof(sl), STATUS_LED_MAGIC, STATUS_LED_VERSION);
+        app->status_led_on = sl ? true : false;
+    }
 
     app->settings.display_brightness = 1.0f;
     app->settings.display_off_delay_ms = 30000;
@@ -769,6 +875,15 @@ static NotificationApp* notification_app_alloc(void) {
     app->event_record = furi_record_open(RECORD_INPUT_EVENTS);
     furi_pubsub_subscribe(app->event_record, input_event_callback, app);
     notification_message(app, &sequence_display_backlight_on);
+
+    /* Arm the idle → light-sleep countdown (reset by input_event_callback). */
+    furi_timer_start(app->sleep_timer, furi_ms_to_ticks(NOTIFICATION_SLEEP_IDLE_MS));
+
+    /* If Status LED was left enabled, start its periodic driver (first tick ~1s
+     * later opens RECORD_BT once all services are up). */
+    if(app->status_led_on && app->status_led_timer) {
+        furi_timer_start(app->status_led_timer, furi_ms_to_ticks(1000));
+    }
 
     if(app->settings.night_shift != 1.0f) {
         night_shift_timer_start(app);

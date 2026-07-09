@@ -14,6 +14,8 @@ typedef enum {
     DolphinAppIbutton,
     DolphinAppBadusb,
     DolphinAppPlugin,
+    DolphinAppWifi,
+    DolphinAppBluetooth,
     DolphinAppMAX,
 } DolphinApp;
 
@@ -58,6 +60,15 @@ typedef enum {
     DolphinDeedPluginStart,
     DolphinDeedPluginGameStart,
     DolphinDeedPluginGameWin,
+
+    DolphinDeedWifiScan,
+    DolphinDeedWifiDeauth,
+    DolphinDeedWifiPortal,
+    DolphinDeedBleSpam,
+    DolphinDeedBleScan,
+
+    DolphinDeedNrf24Send, /* NRF24 — shares the SubGHz daily XP bucket */
+    DolphinDeedIrSendExt, /* IR sent via an external module (higher reward) */
 
     DolphinDeedMAX,
 

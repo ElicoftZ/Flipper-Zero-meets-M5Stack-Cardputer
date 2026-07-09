@@ -884,10 +884,103 @@ static bool loader_do_get_application_launch_path(Loader* loader, FuriString* pa
 
 // app
 
+#include <nvs.h>
+
+extern volatile uint32_t storage_root_mode;
+extern volatile bool storage_bypass_redirection;
+
+static bool loader_check_dir_has_data(Storage* storage, const char* path) {
+    const char* subfolders[] = {"subghz", "nfc", "infrared", "apps", "badusb"};
+    for(size_t i = 0; i < 5; i++) {
+        FuriString* subpath = furi_string_alloc_printf("%s/%s", path, subfolders[i]);
+        FileInfo info;
+        FS_Error err = storage_common_stat(storage, furi_string_get_cstr(subpath), &info);
+        furi_string_free(subpath);
+        if(err == FSE_OK) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void loader_check_storage_root(void) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+
+    // Wait for SD card to be mounted and ready
+    uint32_t total = 0, free = 0;
+    FS_Error fs_err = FSE_NOT_READY;
+    for(int i = 0; i < 40; i++) {
+        fs_err = storage_common_fs_info(storage, "/ext", &total, &free);
+        if(fs_err == FSE_OK) {
+            break;
+        }
+        furi_delay_ms(50);
+    }
+
+    // If SD card is not mounted, do not overwrite the NVS state to 0
+    if(fs_err != FSE_OK) {
+        furi_record_close(storage);
+        uint32_t val = 0;
+        nvs_handle_t nvs_h;
+        if(nvs_open("storage", NVS_READONLY, &nvs_h) == ESP_OK) {
+            nvs_get_u32(nvs_h, "root_mode", &val);
+            nvs_close(nvs_h);
+        }
+        storage_root_mode = val;
+        return;
+    }
+
+    storage_bypass_redirection = true;
+    bool sdcard_has_data = loader_check_dir_has_data(storage, "/ext/sdcard");
+    bool root_has_data = loader_check_dir_has_data(storage, "/ext");
+    furi_record_close(storage);
+    storage_bypass_redirection = false;
+
+    uint32_t val = 0;
+    nvs_handle_t nvs_h;
+    if(nvs_open("storage", NVS_READWRITE, &nvs_h) == ESP_OK) {
+        nvs_get_u32(nvs_h, "root_mode", &val);
+        
+        if(sdcard_has_data && !root_has_data) {
+            nvs_set_u32(nvs_h, "root_mode", 2);
+            nvs_commit(nvs_h);
+            storage_root_mode = 2;
+        } else if(!sdcard_has_data && root_has_data) {
+            nvs_set_u32(nvs_h, "root_mode", 1);
+            nvs_commit(nvs_h);
+            storage_root_mode = 1;
+        } else if(sdcard_has_data && root_has_data) {
+            if(val != 1 && val != 2) {
+                DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+                DialogMessage* message = dialog_message_alloc();
+                dialog_message_set_text(message, "Select Storage:\nBoth root and /sdcard\ncontain data folders.", 64, 15, AlignCenter, AlignCenter);
+                dialog_message_set_buttons(message, "Root", NULL, "SDcard");
+                DialogMessageButton result = dialog_message_show(dialogs, message);
+                dialog_message_free(message);
+                furi_record_close(RECORD_DIALOGS);
+
+                uint32_t new_val = (result == DialogMessageButtonRight) ? 2 : 1;
+                nvs_set_u32(nvs_h, "root_mode", new_val);
+                nvs_commit(nvs_h);
+                storage_root_mode = new_val;
+            } else {
+                storage_root_mode = val;
+            }
+        } else {
+            nvs_set_u32(nvs_h, "root_mode", 0);
+            nvs_commit(nvs_h);
+            storage_root_mode = 0;
+        }
+        nvs_close(nvs_h);
+    }
+}
+
 int32_t loader_srv(void* p) {
     UNUSED(p);
     Loader* loader = loader_alloc();
     furi_record_create(RECORD_LOADER, loader);
+
+    loader_check_storage_root();
 
     FURI_LOG_I(TAG, "Executing system start hooks");
     for(size_t i = 0; i < FLIPPER_ON_SYSTEM_START_COUNT; i++) {

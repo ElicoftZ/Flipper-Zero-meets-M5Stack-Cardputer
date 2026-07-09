@@ -515,11 +515,86 @@ static FS_Error storage_process_sd_status(Storage* app) {
 
 /******************** Aliases processing *******************/
 
+#include <nvs.h>
+
+volatile uint32_t storage_root_mode = 0;
+volatile bool storage_bypass_redirection = false;
+volatile bool storage_root_mode_loaded = false;
+
+static bool storage_check_dir_has_data(Storage* app, const char* path) {
+    const char* subfolders[] = {"subghz", "nfc", "infrared", "apps", "badusb"};
+    for(size_t i = 0; i < 5; i++) {
+        FuriString* subpath = furi_string_alloc_printf("%s/%s", path, subfolders[i]);
+        FileInfo info;
+        FS_Error err = storage_process_common_stat(app, subpath, &info);
+        furi_string_free(subpath);
+        if(err == FSE_OK) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void storage_load_root_mode(Storage* app) {
+    if(storage_data_status(&app->storage[ST_EXT]) != StorageStatusOK) {
+        storage_root_mode_loaded = false;
+        storage_root_mode = 0;
+        return;
+    }
+
+    if(storage_root_mode_loaded) return;
+
+    bool sdcard_has_data = storage_check_dir_has_data(app, "/ext/sdcard");
+    bool root_has_data = storage_check_dir_has_data(app, "/ext");
+    nvs_handle_t nvs_h;
+
+    if(sdcard_has_data && !root_has_data) {
+        storage_root_mode = 2;
+        if(nvs_open("storage", NVS_READWRITE, &nvs_h) == ESP_OK) {
+            nvs_set_u32(nvs_h, "root_mode", 2);
+            nvs_commit(nvs_h);
+            nvs_close(nvs_h);
+        }
+        storage_root_mode_loaded = true;
+    } else if(!sdcard_has_data && root_has_data) {
+        storage_root_mode = 1;
+        if(nvs_open("storage", NVS_READWRITE, &nvs_h) == ESP_OK) {
+            nvs_set_u32(nvs_h, "root_mode", 1);
+            nvs_commit(nvs_h);
+            nvs_close(nvs_h);
+        }
+        storage_root_mode_loaded = true;
+    } else if(!sdcard_has_data && !root_has_data) {
+        storage_root_mode = 1; // Default to Root on empty card
+        storage_root_mode_loaded = true;
+    } else {
+        // Both contain data -> Use NVS value if set, otherwise leave storage_root_mode = 0 for prompter
+        uint32_t val = 0;
+        if(nvs_open("storage", NVS_READONLY, &nvs_h) == ESP_OK) {
+            nvs_get_u32(nvs_h, "root_mode", &val);
+            nvs_close(nvs_h);
+        }
+        if(val == 1 || val == 2) {
+            storage_root_mode = val;
+        } else {
+            storage_root_mode = 0;
+        }
+        storage_root_mode_loaded = true;
+    }
+}
+
 void storage_process_alias(
     Storage* app,
     FuriString* path,
     FuriThreadId thread_id,
     bool create_folders) {
+    storage_load_root_mode(app);
+    if(!storage_bypass_redirection && storage_root_mode == 2 && furi_string_start_with(path, STORAGE_EXT_PATH_PREFIX)) {
+        if(!furi_string_start_with_str(path, "/ext/sdcard")) {
+            furi_string_replace_at(path, 0, strlen(STORAGE_EXT_PATH_PREFIX), "/ext/sdcard");
+        }
+    }
+
     if(furi_string_start_with(path, STORAGE_APP_DATA_PATH_PREFIX)) {
         FuriString* apps_data_path_with_appsid = furi_string_alloc_set(APPS_DATA_PATH "/");
         furi_string_cat(apps_data_path_with_appsid, furi_thread_get_appid(thread_id));

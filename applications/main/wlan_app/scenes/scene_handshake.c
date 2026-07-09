@@ -20,7 +20,7 @@
 // ---------------------------------------------------------------------------
 // Ring buffer (Single + Channel teilen sich den Buffer; nur ein Modus läuft).
 // ---------------------------------------------------------------------------
-#define HS_PKT_POOL_SIZE 32
+#define HS_PKT_POOL_SIZE 16
 #define HS_PKT_MAX_LEN 512
 
 typedef struct {
@@ -73,7 +73,7 @@ static FuriThread* s_deauth_thread = NULL;
 // ---------------------------------------------------------------------------
 // Channel-Mode-Multi-Target-State
 // ---------------------------------------------------------------------------
-#define HSC_MAX_TARGETS 16
+#define HSC_MAX_TARGETS 8
 
 // Save-Path-Cache (gefüllt im on_enter aus app->hs_settings).
 static const char* s_save_dir = NULL;

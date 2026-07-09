@@ -5,7 +5,7 @@
 #include <gui/icon.h>
 
 #define WLAN_LAN_VIEW_LABEL_MAX 28
-#define WLAN_LAN_VIEW_MAX_ITEMS 80
+#define WLAN_LAN_VIEW_MAX_ITEMS 40
 #define WLAN_LAN_VIEW_MAX_MENU_ITEMS 6
 #define WLAN_LAN_VIEW_MENU_LABEL_MAX 20
 

@@ -453,6 +453,189 @@ class FAPCompilerGUI:
                 f.write(manifest_content)
             appid = sanitized_appid
             
+        # Check and auto-patch TagTinker if detected
+        is_tagtinker = (appid == "tagtinker") or os.path.exists(os.path.join(target_dir, "tagtinker_app.c")) or os.path.exists(os.path.join(target_dir, "wifi", "tagtinker_wifi.c"))
+        if is_tagtinker:
+            print("Auto-patching TagTinker for Cardputer-ADV compatibility...")
+            # 1. Update tagtinker_app.c to disable startup Bluetooth stack load to prevent OOM
+            app_c_path = os.path.join(target_dir, "tagtinker_app.c")
+            if os.path.exists(app_c_path):
+                with open(app_c_path, "r", encoding="utf-8") as f:
+                    txt = f.read()
+                txt = txt.replace("bt_disconnect(app->bt);", "// bt_disconnect(app->bt);")
+                txt = txt.replace("bt_profile_restore_default(app->bt);", "// bt_profile_restore_default(app->bt);")
+                with open(app_c_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(txt)
+
+            # 2. Update tagtinker_wifi.c to remove expansion dependency
+            wifi_c_path = os.path.join(target_dir, "wifi", "tagtinker_wifi.c")
+            if os.path.exists(wifi_c_path):
+                with open(wifi_c_path, "r", encoding="utf-8") as f:
+                    txt = f.read()
+                # Remove include
+                txt = txt.replace("#include <expansion/expansion.h>", "// #include <expansion/expansion.h>")
+                # Replace structure type
+                txt = txt.replace("Expansion*           expansion;", "void*                expansion;")
+                # Replace record management & enable/disable in tagtinker_wifi_open
+                txt = re.sub(
+                    r'/\*\s*Yield the UART from the expansion service before grabbing it\.\s*\*/\s*'
+                    r'w->expansion\s*=\s*furi_record_open\(RECORD_EXPANSION\);\s*'
+                    r'expansion_disable\(w->expansion\);\s*'
+                    r'w->serial\s*=\s*furi_hal_serial_control_acquire\(FuriHalSerialIdUsart\);\s*'
+                    r'if\(!w->serial\)\s*{\s*'
+                    r'expansion_enable\(w->expansion\);\s*'
+                    r'furi_record_close\(RECORD_EXPANSION\);\s*'
+                    r'w->expansion\s*=\s*NULL;\s*'
+                    r'return\s+false;\s*'
+                    r'}',
+                    r'w->expansion = NULL;\n    w->serial = furi_hal_serial_control_acquire(FuriHalSerialIdUsart);\n    if(!w->serial) {\n        return false;\n    }',
+                    txt
+                )
+                # Replace expansion close in tagtinker_wifi_close
+                txt = txt.replace(
+                    "if(w->expansion) {\n        expansion_enable(w->expansion);\n        furi_record_close(RECORD_EXPANSION);\n        w->expansion = NULL;\n    }",
+                    "w->expansion = NULL;"
+                )
+                with open(wifi_c_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(txt)
+
+            # 3. Rewrite tagtinker_ir.c completely for ESP32
+            ir_c_path = os.path.join(target_dir, "ir", "tagtinker_ir.c")
+            if os.path.exists(ir_c_path):
+                esp32_ir_code = """/*
+ * IR transmitter.
+ *
+ * Rewritten for ESP32-S3 using the native Flipper furi_hal_infrared RMT driver.
+ */
+
+#include "tagtinker_ir.h"
+#include <furi.h>
+#include <furi_hal.h>
+
+static bool ir_initialized = false;
+static volatile bool ir_stop_requested = false;
+
+// State structure for the asynchronous RMT feeder callback
+typedef struct {
+    const uint8_t* data;
+    size_t len;
+    size_t current_symbol;
+    size_t state; // 0 = burst (mark), 1 = gap (space), 2 = final burst (mark), 3 = finished
+} TagTinkerIrTxState;
+
+static const uint32_t pp4_gap_us[4] = {
+    60,   // symbol 0 ~60 us
+    181,  // symbol 1 ~181 us
+    121,  // symbol 2 ~121 us
+    242,  // symbol 3 ~242 us
+};
+
+static FuriHalInfraredTxGetDataState tagtinker_ir_tx_callback(void* context, uint32_t* duration, bool* level) {
+    TagTinkerIrTxState* state = context;
+    if(state->state == 3) {
+        return FuriHalInfraredTxGetDataStateLastDone;
+    }
+
+    if(state->state == 0) {
+        // Mark (burst)
+        *duration = 40; // 40 us burst
+        *level = true;
+        
+        state->state = 1;
+        return FuriHalInfraredTxGetDataStateOk;
+    } else if(state->state == 1) {
+        // Space (gap)
+        size_t byte_idx = state->current_symbol / 4;
+        size_t sym_idx = state->current_symbol % 4;
+        uint8_t current_byte = state->data[byte_idx];
+        
+        // Shift to get the active symbol
+        uint8_t symbol = (current_byte >> (sym_idx * 2)) & 0x03;
+        *duration = pp4_gap_us[symbol];
+        *level = false;
+
+        state->current_symbol++;
+        if(state->current_symbol < state->len * 4) {
+            state->state = 0; // go back to burst
+        } else {
+            state->state = 2; // proceed to final burst
+        }
+        return FuriHalInfraredTxGetDataStateOk;
+    } else if(state->state == 2) {
+        // Final closing burst
+        *duration = 40;
+        *level = true;
+        state->state = 3;
+        return FuriHalInfraredTxGetDataStateLastDone;
+    }
+
+    return FuriHalInfraredTxGetDataStateLastDone;
+}
+
+void tagtinker_ir_init(void) {
+    ir_initialized = true;
+}
+
+void tagtinker_ir_deinit(void) {
+    ir_initialized = false;
+}
+
+bool tagtinker_ir_transmit(const uint8_t* data, size_t len, uint16_t repeats_raw, uint8_t delay) {
+    if(!ir_initialized) return false;
+    if(!data || len == 0 || len > 255) return false;
+
+    ir_stop_requested = false;
+    uint32_t repeats = repeats_raw & 0x7FFF;
+
+    // Use internal IR transmitter output
+    FuriHalInfraredTxPin original_pin = furi_hal_infrared_get_tx_output();
+    furi_hal_infrared_set_tx_output(FuriHalInfraredTxPinInternal);
+
+    for(uint32_t rep = 0; rep <= repeats; rep++) {
+        if(ir_stop_requested) {
+            break;
+        }
+
+        TagTinkerIrTxState state = {
+            .data = data,
+            .len = len,
+            .current_symbol = 0,
+            .state = 0
+        };
+
+        furi_hal_infrared_async_tx_set_data_isr_callback(tagtinker_ir_tx_callback, &state);
+        // Start transmission with 1.25 MHz carrier and 50% duty cycle
+        furi_hal_infrared_async_tx_start(1250000, 0.5f);
+        furi_hal_infrared_async_tx_wait_termination();
+
+        if(rep < repeats && delay > 0) {
+            furi_delay_ms(delay);
+        }
+    }
+
+    furi_hal_infrared_set_tx_output(original_pin);
+    return true;
+}
+
+void tagtinker_ir_stop(void) {
+    ir_stop_requested = true;
+}
+"""
+                with open(ir_c_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(esp32_ir_code)
+            
+            # 4. Remove expansion from application.fam requirements
+            if os.path.exists(manifest_path):
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                content = content.replace('"expansion"', '').replace("'expansion'", '')
+                # Clean up empty elements/commas in requires array
+                content = re.sub(r',\s*,', ',', content)
+                content = re.sub(r'\[\s*,', '[', content)
+                content = re.sub(r',\s*\]', ']', content)
+                with open(manifest_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(content)
+
         collisions = scan_for_collisions(target_dir)
         update_manifest(manifest_path, collisions)
 

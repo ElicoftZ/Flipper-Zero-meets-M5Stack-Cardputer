@@ -3,13 +3,28 @@
 
 #include <furi.h>
 #include <furi_hal.h>
+#include <esp_attr.h>
+#include <esp_system.h>
+
+#define DOLPHIN_RTC_MAGIC 0x444f4c50u // "DOLP"
+
+typedef struct {
+    uint32_t magic;
+    uint32_t icounter;
+    int32_t butthurt;
+} DolphinRtcData;
+
+static RTC_NOINIT_ATTR DolphinRtcData s_dolphin_rtc;
 
 #include <storage/storage.h>
 #include <toolbox/saved_struct.h>
 
 #define TAG "DolphinState"
 
-#define DOLPHIN_STATE_PATH           INT_PATH(DOLPHIN_STATE_FILE_NAME)
+/* Persist to the SD card (/ext), not internal flash, to avoid flash wear.
+ * Writes are already rare (RTC holds live XP/mood; SD is touched only on the
+ * 1-min idle flush) and dolphin_init_state gates loading on SD presence. */
+#define DOLPHIN_STATE_PATH           EXT_PATH(DOLPHIN_STATE_FILE_NAME)
 #define DOLPHIN_STATE_HEADER_MAGIC   0xD0
 #define DOLPHIN_STATE_HEADER_VERSION 0x01
 #define LEVEL2_THRESHOLD             300
@@ -55,9 +70,53 @@ void dolphin_state_load(DolphinState* dolphin_state) {
         DOLPHIN_STATE_HEADER_VERSION);
 
     if(success) {
+        FURI_LOG_I(TAG, "Successfully loaded state from SD card (XP: %lu, BH: %ld)", 
+                   dolphin_state->data.icounter, dolphin_state->data.butthurt);
+        // Sync loaded values to active RTC memory
+        s_dolphin_rtc.magic = DOLPHIN_RTC_MAGIC;
+        s_dolphin_rtc.icounter = dolphin_state->data.icounter;
+        s_dolphin_rtc.butthurt = dolphin_state->data.butthurt;
+    } else {
+        // Fallback to RTC RAM if SD load failed but RTC magic is valid
+        if(s_dolphin_rtc.magic == DOLPHIN_RTC_MAGIC) {
+            memset(&dolphin_state->data, 0, sizeof(DolphinStoreData));
+            dolphin_state->data.icounter = s_dolphin_rtc.icounter;
+            dolphin_state->data.butthurt = s_dolphin_rtc.butthurt;
+            success = true;
+            FURI_LOG_I(TAG, "Loaded state from RTC RAM fallback (XP: %lu, BH: %ld)", 
+                       dolphin_state->data.icounter, dolphin_state->data.butthurt);
+        }
+    }
+
+    if(success) {
         if((dolphin_state->data.butthurt > BUTTHURT_MAX) ||
            (dolphin_state->data.butthurt < BUTTHURT_MIN)) {
             success = false;
+        } else {
+            // Apply offline butthurt accumulation and limit clearing
+            uint64_t now = dolphin_state_timestamp();
+            uint64_t last = dolphin_state->data.timestamp;
+            if (now > last) {
+                uint64_t diff_sec = now - last;
+                // BUTTHURT_INCREASE_PERIOD_TICKS is normally 48 hours (48 * 3600 seconds)
+                uint64_t periods = diff_sec / (48UL * 3600UL);
+                if (periods > 0) {
+                    dolphin_state->data.butthurt = CLAMP(dolphin_state->data.butthurt + periods, BUTTHURT_MAX, BUTTHURT_MIN);
+                    dolphin_state->data.timestamp = now;
+                    dolphin_state->dirty = true;
+                }
+                // Clear limits if more than 24 hours (24 * 3600 seconds) have passed
+                if (diff_sec >= (24UL * 3600UL)) {
+                    dolphin_state_clear_limits(dolphin_state);
+                }
+                if (dolphin_state->dirty) {
+                    dolphin_state_save(dolphin_state);
+                }
+            }
+            // Sync current values to active RTC memory
+            s_dolphin_rtc.magic = DOLPHIN_RTC_MAGIC;
+            s_dolphin_rtc.icounter = dolphin_state->data.icounter;
+            s_dolphin_rtc.butthurt = dolphin_state->data.butthurt;
         }
     }
 
@@ -67,6 +126,11 @@ void dolphin_state_load(DolphinState* dolphin_state) {
 
         dolphin_state->dirty = true;
         dolphin_state_save(dolphin_state);
+
+        // Sync reset values to active RTC memory
+        s_dolphin_rtc.magic = DOLPHIN_RTC_MAGIC;
+        s_dolphin_rtc.icounter = dolphin_state->data.icounter;
+        s_dolphin_rtc.butthurt = dolphin_state->data.butthurt;
     }
 }
 
@@ -166,6 +230,11 @@ void dolphin_state_on_deed(DolphinState* dolphin_state, DolphinDeed deed) {
     dolphin_state->data.timestamp = dolphin_state_timestamp();
     dolphin_state->dirty = true;
 
+    // Sync to active RTC memory
+    s_dolphin_rtc.magic = DOLPHIN_RTC_MAGIC;
+    s_dolphin_rtc.icounter = dolphin_state->data.icounter;
+    s_dolphin_rtc.butthurt = dolphin_state->data.butthurt;
+
     FURI_LOG_D(
         TAG,
         "icounter %lu, butthurt %ld",
@@ -178,6 +247,8 @@ void dolphin_state_butthurted(DolphinState* dolphin_state) {
         dolphin_state->data.butthurt++;
         dolphin_state->data.timestamp = dolphin_state_timestamp();
         dolphin_state->dirty = true;
+
+        s_dolphin_rtc.butthurt = dolphin_state->data.butthurt;
     }
 }
 
@@ -185,6 +256,8 @@ void dolphin_state_increase_level(DolphinState* dolphin_state) {
     furi_assert(dolphin_state_is_levelup(dolphin_state->data.icounter));
     ++dolphin_state->data.icounter;
     dolphin_state->dirty = true;
+
+    s_dolphin_rtc.icounter = dolphin_state->data.icounter;
 }
 
 void dolphin_state_clear_limits(DolphinState* dolphin_state) {

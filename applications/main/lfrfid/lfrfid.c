@@ -1,5 +1,6 @@
 #include "lfrfid_i.h"
 #include <dolphin/dolphin.h>
+#include <furi_hal.h> /* BOARD_HAS_RFID */
 
 //TODO: use .txt file in resources for passwords.
 const uint32_t default_passwords[] = {
@@ -194,6 +195,20 @@ static void lfrfid_free(LfRfid* lfrfid) {
 }
 
 int32_t lfrfid_app(void* p) {
+#if !BOARD_HAS_RFID
+    /* No 125 kHz RFID front-end on this board (e.g. Cardputer-ADV). Refuse
+     * cleanly with a message instead of running against absent hardware. */
+    DialogsApp* rfid_dialogs = furi_record_open(RECORD_DIALOGS);
+    DialogMessage* rfid_msg = dialog_message_alloc();
+    dialog_message_set_header(rfid_msg, "RFID Unavailable", 64, 8, AlignCenter, AlignTop);
+    dialog_message_set_text(
+        rfid_msg, "No module for\n125 kHz RFID.", 64, 32, AlignCenter, AlignCenter);
+    dialog_message_set_buttons(rfid_msg, NULL, NULL, NULL);
+    dialog_message_show(rfid_dialogs, rfid_msg);
+    dialog_message_free(rfid_msg);
+    furi_record_close(RECORD_DIALOGS);
+    return 0;
+#endif
     LfRfid* app = lfrfid_alloc();
     char* args = p;
 

@@ -21,7 +21,7 @@
 // einzige async-TX-Queue; zu viele saturieren das und das Opfer verliert Pakete.
 #define LC_AUTO_MONITOR_MAX 4
 
-#define LC_SCRATCH 8
+#define LC_SCRATCH 4
 
 static Storage* s_lc_storage = NULL;
 static File* s_lc_file = NULL;

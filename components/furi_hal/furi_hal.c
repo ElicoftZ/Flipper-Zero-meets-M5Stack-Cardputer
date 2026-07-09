@@ -18,21 +18,15 @@ void furi_hal_init_early(void) {
 #endif
 
 #ifdef BOARD_PIN_NRF24_CSN
-    /* T-Embed Plus shares SPI2 between CC1101 and NRF24. Drive NRF24 CSN HIGH
-     * (deselected) and CE LOW (standby) at boot, before any CC1101 SPI traffic.
-     * Without this, NRF24 sees CC1101 traffic and corrupts the bus, manifesting
-     * as a stuck ~312 MHz reading in the Frequency Analyzer and total RX failure. */
-    static const GpioPin nrf24_csn = {.port = NULL, .pin = BOARD_PIN_NRF24_CSN};
-    furi_hal_gpio_init_simple(&nrf24_csn, GpioModeOutputPushPull);
-    furi_hal_gpio_write(&nrf24_csn, true);
-    ESP_LOGI(TAG, "NRF24_CSN GPIO%d set HIGH (deselect)", BOARD_PIN_NRF24_CSN);
+    furi_hal_gpio_init_simple(&gpio_nrf24_cs, GpioModeOutputPushPull);
+    furi_hal_gpio_write(&gpio_nrf24_cs, true);
+    ESP_LOGI(TAG, "NRF24_CSN GPIO%d set HIGH (deselect)", gpio_nrf24_cs.pin);
 #endif
 
 #ifdef BOARD_PIN_NRF24_CE
-    static const GpioPin nrf24_ce = {.port = NULL, .pin = BOARD_PIN_NRF24_CE};
-    furi_hal_gpio_init_simple(&nrf24_ce, GpioModeOutputPushPull);
-    furi_hal_gpio_write(&nrf24_ce, false);
-    ESP_LOGI(TAG, "NRF24_CE GPIO%d set LOW (standby)", BOARD_PIN_NRF24_CE);
+    furi_hal_gpio_init_simple(&gpio_nrf24_ce, GpioModeOutputPushPull);
+    furi_hal_gpio_write(&gpio_nrf24_ce, false);
+    ESP_LOGI(TAG, "NRF24_CE GPIO%d set LOW (standby)", gpio_nrf24_ce.pin);
 #endif
 
     ESP_LOGI(TAG, "Early init complete");
@@ -48,6 +42,8 @@ void furi_hal_init(void) {
         nvs_flash_erase();
         nvs_flash_init();
     }
+
+    furi_hal_module_pins_load();
 
     furi_hal_rtc_init();
     furi_hal_version_init();

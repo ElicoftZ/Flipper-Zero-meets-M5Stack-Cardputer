@@ -1,0 +1,9 @@
+.cache/
+
+scripts/
+flipper-application-catalog/
+
+.clang-format
+.clangd
+
+compile_commands.json

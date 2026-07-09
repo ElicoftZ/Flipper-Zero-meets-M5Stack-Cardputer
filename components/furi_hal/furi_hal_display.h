@@ -42,6 +42,13 @@ void furi_hal_display_set_backlight(uint8_t brightness);
  */
 void furi_hal_display_sleep(void);
 
+/** Wake the display panel from sleep (ST7789 SLPOUT + display on).
+ *
+ * Reverses furi_hal_display_sleep() — used on the light-sleep wake path. Safe to
+ * call without holding the SPI bus lock; it grabs the lock internally.
+ */
+void furi_hal_display_wake(void);
+
 /** Set the UI foreground color (the tint that fills the "ink" of every
  * monochrome u8g2 frame on this color port). Stored as RGB565, byte-swapped
  * for the ST7789 SPI byte order.

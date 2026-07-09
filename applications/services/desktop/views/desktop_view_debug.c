@@ -26,7 +26,7 @@ void desktop_debug_render(Canvas* canvas, void* model) {
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontPrimary);
 
-    uint32_t uptime = furi_get_tick() / furi_kernel_get_tick_frequency();
+    uint32_t uptime = furi_hal_power_get_uptime_sec(); /* counts through light sleep */
     snprintf(
         buffer,
         sizeof(buffer),

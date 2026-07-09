@@ -2,12 +2,12 @@
 #include <furi.h>
 
 static const DolphinDeedWeight dolphin_deed_weights[] = {
-    {1, DolphinAppSubGhz}, // DolphinDeedSubGhzReceiverInfo
-    {3, DolphinAppSubGhz}, // DolphinDeedSubGhzSave
-    {1, DolphinAppSubGhz}, // DolphinDeedSubGhzRawRec
-    {2, DolphinAppSubGhz}, // DolphinDeedSubGhzAddManually
-    {2, DolphinAppSubGhz}, // DolphinDeedSubGhzSend
-    {1, DolphinAppSubGhz}, // DolphinDeedSubGhzFrequencyAnalyzer
+    {5, DolphinAppSubGhz}, // DolphinDeedSubGhzReceiverInfo (CC1101: 5 XP/use)
+    {5, DolphinAppSubGhz}, // DolphinDeedSubGhzSave
+    {5, DolphinAppSubGhz}, // DolphinDeedSubGhzRawRec
+    {5, DolphinAppSubGhz}, // DolphinDeedSubGhzAddManually
+    {5, DolphinAppSubGhz}, // DolphinDeedSubGhzSend
+    {5, DolphinAppSubGhz}, // DolphinDeedSubGhzFrequencyAnalyzer
 
     {1, DolphinAppRfid}, // DolphinDeedRfidRead
     {3, DolphinAppRfid}, // DolphinDeedRfidReadSuccess
@@ -24,7 +24,7 @@ static const DolphinDeedWeight dolphin_deed_weights[] = {
     {1, DolphinAppNfc}, // DolphinDeedNfcAddSave
     {1, DolphinAppNfc}, // DolphinDeedNfcAddEmulate
 
-    {1, DolphinAppIr}, // DolphinDeedIrSend
+    {2, DolphinAppIr}, // DolphinDeedIrSend (built-in emitter: 2 XP)
     {3, DolphinAppIr}, // DolphinDeedIrLearnSuccess
     {3, DolphinAppIr}, // DolphinDeedIrSave
 
@@ -42,6 +42,15 @@ static const DolphinDeedWeight dolphin_deed_weights[] = {
     {2, DolphinAppPlugin}, // DolphinDeedPluginStart
     {1, DolphinAppPlugin}, // DolphinDeedPluginGameStart
     {10, DolphinAppPlugin}, // DolphinDeedPluginGameWin
+
+    {2, DolphinAppWifi}, // DolphinDeedWifiScan (WiFi: 2 XP/use)
+    {2, DolphinAppWifi}, // DolphinDeedWifiDeauth
+    {2, DolphinAppWifi}, // DolphinDeedWifiPortal
+    {1, DolphinAppBluetooth}, // DolphinDeedBleSpam (Bluetooth: 1 XP/use)
+    {1, DolphinAppBluetooth}, // DolphinDeedBleScan
+
+    {5, DolphinAppSubGhz}, // DolphinDeedNrf24Send (NRF24: 5 XP, shares SubGHz bucket)
+    {4, DolphinAppIr}, // DolphinDeedIrSendExt (IR via external module: 4 XP)
 };
 
 static uint8_t dolphin_deed_limits[] = {
@@ -52,6 +61,8 @@ static uint8_t dolphin_deed_limits[] = {
     20, // DolphinAppIbutton
     20, // DolphinAppBadusb
     20, // DolphinAppPlugin
+    20, // DolphinAppWifi
+    35, // DolphinAppBluetooth (higher daily cap)
 };
 
 _Static_assert(COUNT_OF(dolphin_deed_weights) == DolphinDeedMAX, "dolphin_deed_weights size error");

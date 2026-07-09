@@ -154,12 +154,18 @@ static bool sd_remove_recursive(const char* path) {
     return status == FR_OK;
 }
 
+extern volatile uint32_t storage_root_mode;
+extern volatile bool storage_root_mode_loaded;
+
 FS_Error sd_unmount_card(StorageData* storage) {
     SDData* sd_data = storage->data;
     SDError error;
 
     storage->status = StorageStatusNotReady;
     error = FR_DISK_ERR;
+
+    storage_root_mode = 0;
+    storage_root_mode_loaded = false;
 
     // TODO FL-3522: do i need to close the files?
     f_mount(0, sd_data->path, 0);

@@ -8,6 +8,7 @@
 #include <furi.h>
 #include <furi_hal_random.h>
 #include <btshim.h>
+#include <dolphin/dolphin.h>
 #include <string.h>
 
 /* Minimum free internal heap required to bring up the BLE controller +
@@ -183,6 +184,7 @@ bool ble_spam_hal_start(void) {
 
     s_hal_started = true;
     ESP_LOGI(TAG, "BLE spam HAL ready");
+    dolphin_deed(DolphinDeedBleSpam);
     return true;
 }
 

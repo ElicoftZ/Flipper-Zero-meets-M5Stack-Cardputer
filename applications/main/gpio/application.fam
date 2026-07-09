@@ -6,6 +6,17 @@ App(
     stack_size=2 * 1024,
     icon="A_GPIO_14",
     order=50,
+    # USB-UART bridge is not ported to ESP32 yet — compile only the manual GPIO
+    # control path. Re-add the usb_uart_* sources here when porting the bridge.
+    sources=[
+        "gpio_app.c",
+        "gpio_items.c",
+        "scenes/gpio_scene.c",
+        "scenes/gpio_scene_start.c",
+        "scenes/gpio_scene_test.c",
+        "scenes/gpio_scene_custom.c",
+        "views/gpio_test.c",
+    ],
     fap_libs=["assets"],
     fap_icon="icon.png",
     fap_category="GPIO",

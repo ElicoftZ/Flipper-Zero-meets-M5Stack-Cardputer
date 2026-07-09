@@ -2,6 +2,7 @@
 #include "furi_hal_bq27220.h"
 #include "furi_hal_bq25896.h"
 #include "furi_hal_display.h"
+#include "furi_hal_light.h"
 #include "boards/board.h"
 
 #include <math.h>
@@ -453,6 +454,59 @@ void furi_hal_power_shutdown(void) {
     esp_deep_sleep_enable_gpio_wakeup(BIT(BOARD_PIN_BUTTON_BOOT), ESP_GPIO_WAKEUP_GPIO_LOW);
 #endif
     esp_deep_sleep_start();
+}
+
+uint32_t furi_hal_power_get_uptime_sec(void) {
+    /* esp_timer is advanced by the measured sleep duration on wake, so this
+     * keeps counting through light sleep (unlike the frozen FreeRTOS tick). */
+    return (uint32_t)(esp_timer_get_time() / 1000000LL);
+}
+
+bool furi_hal_power_light_sleep(void) {
+    /* Inhibit while USB is connected: keep the console / flashing port alive and
+     * avoid re-enumerating the USB-Serial-JTAG on every sleep/wake cycle. */
+    furi_hal_power_refresh_sample();
+    if(furi_hal_power_is_usb_present()) return false;
+
+    /* Backlight fully OFF for sleep — bypass the readable-idle floor clamp in
+     * furi_hal_display_set_backlight() (which never goes below ~86%). */
+    furi_hal_light_set(LightBacklight, 0);
+    furi_hal_light_set_rgb_all(0, 0, 0); /* status LED / WS2812 dark during sleep */
+    furi_hal_display_sleep(); /* panel SLPIN */
+
+    /* Wake sources:
+     *  - keyboard controller INT (active low) → any key wakes.
+     *  - BOOT / power button (active low) → reliable hardware force-wake fallback
+     *    if the keyboard-INT path ever misbehaves.
+     *  - timer watchdog → bounds each sleep chunk; also force-wakes after
+     *    LS_MAX_SLEEP even if every GPIO wake path fails, so the device can never
+     *    get stuck asleep. */
+    gpio_wakeup_enable((gpio_num_t)BOARD_PIN_BUTTON_BOOT, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+
+    const uint64_t LS_WATCHDOG_US = 15ULL * 1000000ULL; /* re-check every 15 s */
+    esp_sleep_wakeup_cause_t cause = ESP_SLEEP_WAKEUP_UNDEFINED;
+    do {
+        esp_sleep_enable_timer_wakeup(LS_WATCHDOG_US);
+        if(esp_light_sleep_start() != ESP_OK) break; /* couldn't sleep → bail out */
+        cause = esp_sleep_get_wakeup_cause();
+        if(cause != ESP_SLEEP_WAKEUP_TIMER) break; /* GPIO (BOOT) → real wake */
+        furi_hal_power_refresh_sample();
+        if(furi_hal_power_is_usb_present()) break; /* plugged in → wake */
+    } while(1);
+
+    /* Tear down the wake sources we added. */
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+#ifdef KB_PIN_INT
+    gpio_wakeup_disable((gpio_num_t)KB_PIN_INT);
+#endif
+    gpio_wakeup_disable((gpio_num_t)BOARD_PIN_BUTTON_BOOT);
+
+    /* Restore the panel + backlight. The wake keypress also reaches the
+     * notification service, which re-applies the user's configured brightness. */
+    furi_hal_display_wake(); /* panel SLPOUT */
+    furi_hal_display_set_backlight(255);
+    return true;
 }
 
 void furi_hal_power_off(void) {

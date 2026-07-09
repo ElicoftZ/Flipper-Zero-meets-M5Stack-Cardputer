@@ -28,6 +28,7 @@ set(FURI_HAL_SRCS
     "furi_hal_light.c"
     "furi_hal_vibro.c"
     "furi_hal_speaker.c"
+    "furi_hal_mic.c"
     "furi_hal_display.c"
     "furi_hal_spi_bus.c"
     "furi_hal_spi.c"
@@ -42,6 +43,9 @@ set(FURI_HAL_SRCS
     "furi_hal_bq25896.c"
     "furi_hal_big_fap.c"
     "fatfs_compat.c"
+    "furi_hal_serial.c"
+    "furi_hal_bus.c"
+    "furi_hal_module_pins.c"
 )
 
 set(FURI_HAL_REQUIRES

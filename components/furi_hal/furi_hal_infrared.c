@@ -20,12 +20,13 @@
 #include <esp_heap_caps.h>
 
 #include BOARD_INCLUDE
+#include "furi_hal_resources.h"
 
 /* ---- Configuration ---- */
 
 #if BOARD_HAS_IR
-#define IR_TX_GPIO  BOARD_PIN_IR_TX
-#define IR_RX_GPIO  BOARD_PIN_IR_RX
+#define IR_TX_GPIO  gpio_ir_tx.pin
+#define IR_RX_GPIO  gpio_ir_rx.pin
 #else
 #define IR_TX_GPIO  GPIO_NUM_NC
 #define IR_RX_GPIO  GPIO_NUM_NC
@@ -606,4 +607,8 @@ void furi_hal_infrared_set_tx_output(FuriHalInfraredTxPin tx_pin) {
     if(tx_pin < FuriHalInfraredTxPinMax) {
         active_tx_pin = tx_pin;
     }
+}
+
+FuriHalInfraredTxPin furi_hal_infrared_get_tx_output(void) {
+    return active_tx_pin;
 }

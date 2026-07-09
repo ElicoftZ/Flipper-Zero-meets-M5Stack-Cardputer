@@ -247,6 +247,15 @@ def scan_source(app_dir):
             if inc.startswith("lib/") and inc[4:] in known_hdrs:
                 continue  # Flipper adds lib/ as an include root
             missing.append(inc)
+
+    # If this is TagTinker, filter out the STM32/serial profile signatures since the compiler auto-patches them
+    is_tagtinker = False
+    if os.path.exists(os.path.join(app_dir, "tagtinker_app.c")) or os.path.exists(os.path.join(app_dir, "wifi", "tagtinker_wifi.c")):
+        is_tagtinker = True
+
+    if is_tagtinker:
+        stm = [s for s in stm if s not in ("LL_TIM", "stm32")]
+
     return {"unknown_symbols": unknown_syms, "missing_headers": missing,
             "stm": sorted(stm)}
 

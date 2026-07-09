@@ -1,7 +1,7 @@
 App(
     appid="key_copier",
     name="Key Copier",
-    apptype=FlipperAppType.MENUEXTERNAL,
+    apptype=FlipperAppType.EXTERNAL,
     entry_point="main_key_copier_app",
     icon="I_icon",
     stack_size=4 * 1024,

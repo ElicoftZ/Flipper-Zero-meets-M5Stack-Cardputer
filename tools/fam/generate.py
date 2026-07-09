@@ -335,7 +335,7 @@ def gather_sources(base_dir: Path, patterns: Iterable[str], allow_lib_dir: bool 
     unique = sorted({path for path in resolved if path.is_file() and path not in excluded})
     if allow_lib_dir:
         return unique
-    return [path for path in unique if "/lib/" not in str(path)]
+    return [path for path in unique if "/lib/" not in str(path).replace("\\", "/")]
 
 
 def cmake_quote(path: Path | str) -> str:
@@ -432,13 +432,15 @@ def generate_ported_cmake(buildset: AppBuildset, project_dir: Path) -> str:
             contents.append(")")
             contents.append(f"target_include_directories({lib_target} PRIVATE")
             contents.append(f"    {cmake_quote(app_root)}")
+            contents.append(f"    {cmake_quote(project_dir / 'components/furi/compat')}")
             for include_path in private_lib.fap_include_paths:
                 contents.append(f"    {cmake_quote(lib_root / include_path)}")
             for include_path in private_lib.cincludes:
                 contents.append(f"    {cmake_quote(app_root / include_path)}")
             contents.append(")")
-            if private_lib.cdefines:
-                contents.append(f"target_compile_definitions({lib_target} PRIVATE {' '.join(private_lib.cdefines)})")
+            fap_ver_str = ".".join(map(str, app.fap_version)) if isinstance(app.fap_version, tuple) else str(app.fap_version)
+            lib_cdefines = list(private_lib.cdefines) + [f'FAP_VERSION=\\\"{fap_ver_str}\\\"']
+            contents.append(f"target_compile_definitions({lib_target} PRIVATE {' '.join(lib_cdefines)})")
             if private_lib.cflags:
                 contents.append(f"target_compile_options({lib_target} PRIVATE {' '.join(private_lib.cflags)})")
             contents.append(f"list(APPEND ESP32_FAM_PORTED_OBJECT_TARGETS {lib_target})")
@@ -452,18 +454,22 @@ def generate_ported_cmake(buildset: AppBuildset, project_dir: Path) -> str:
         contents.append(")")
         contents.append(f"target_include_directories({app_target} PRIVATE")
         contents.append(f"    {cmake_quote(app_root)}")
+        contents.append(f"    {cmake_quote(project_dir / 'components/furi/compat')}")
         if icon_include_dir:
             contents.append(f"    {cmake_quote(icon_include_dir)}")
         for private_lib in app.fap_private_libs:
             lib_root = app_root / "lib" / private_lib.name
             for include_path in private_lib.fap_include_paths:
                 contents.append(f"    {cmake_quote(lib_root / include_path)}")
+            # Private libraries might also include furi/core compat headers
+            contents.append(f"    {cmake_quote(project_dir / 'components/furi/compat')}")
         contents.append(")")
-        if app.cdefines:
-            contents.append(f"target_compile_definitions({app_target} PRIVATE {' '.join(app.cdefines)})")
+        fap_ver_str = ".".join(map(str, app.fap_version)) if isinstance(app.fap_version, tuple) else str(app.fap_version)
+        app_cdefines = list(app.cdefines) + [f'FAP_VERSION=\\\"{fap_ver_str}\\\"']
+        contents.append(f"target_compile_definitions({app_target} PRIVATE {' '.join(app_cdefines)})")
         # Relax warnings for user apps and js_app modules
         if "/applications_user/" in getattr(app, "_manifest_path", "").replace("\\", "/") or "/port_apps/" in getattr(app, "_manifest_path", "").replace("\\", "/") or app.appid.startswith("js_"):
-            contents.append(f"target_compile_options({app_target} PRIVATE -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types)")
+            contents.append(f"target_compile_options({app_target} PRIVATE -Wno-error -Wno-error=format-truncation -Wno-error=strict-aliasing -Wno-error=array-bounds -Wno-error=stringop-truncation -Wno-error=stringop-overflow -Wno-incompatible-pointer-types -Wno-implicit-function-declaration)")
         contents.append(f"list(APPEND ESP32_FAM_PORTED_OBJECT_TARGETS {app_target})")
         contents.append("")
 

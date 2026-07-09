@@ -115,9 +115,12 @@ static void findmy_state_update_payload_battery(FindMyState* state) {
 void findmy_state_apply(FindMyState* state) {
     // This function applies configured state to the beacon (loaded values)
 
-    // Stop beacon before configuring
+    // Beaconing needs a running BT stack. On no-PSRAM boards (Cardputer-ADV) BT
+    // is OFF by default, so the extra-beacon calls return false — bail gracefully
+    // instead of furi_check-crashing. The app UI still opens; enable Bluetooth to
+    // actually beacon.
     if(furi_hal_bt_extra_beacon_is_active()) {
-        furi_check(furi_hal_bt_extra_beacon_stop());
+        furi_hal_bt_extra_beacon_stop();
     }
 
     // Make config struct from configured parameters and set it
@@ -129,16 +132,19 @@ void findmy_state_apply(FindMyState* state) {
         .address_type = GapAddressTypePublic,
     };
     memcpy(config.address, state->mac, sizeof(config.address));
-    furi_check(furi_hal_bt_extra_beacon_set_config(&config));
+    if(!furi_hal_bt_extra_beacon_set_config(&config)) {
+        return; // BT unavailable — do not beacon (and do not crash)
+    }
 
     // Update data payload with battery level and set it
     findmy_state_update_payload_battery(state);
-    furi_check(
-        furi_hal_bt_extra_beacon_set_data(state->data, findmy_state_data_size(state->tag_type)));
+    if(!furi_hal_bt_extra_beacon_set_data(state->data, findmy_state_data_size(state->tag_type))) {
+        return;
+    }
 
     // Start beacon if configured
     if(state->beacon_active) {
-        furi_check(furi_hal_bt_extra_beacon_start());
+        furi_hal_bt_extra_beacon_start();
     }
 }
 

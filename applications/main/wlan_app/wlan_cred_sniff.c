@@ -31,13 +31,13 @@
 // ---------------------------------------------------------------------------
 
 #define DNS_DEDUP_BITS 512 // 64 Byte Bitmap → grob ~hunderte unique Queries pro Session
-#define CRED_PENDING_SLOTS 8 // USER→PASS / AUTH-LOGIN-Korrelation pro (ip,port)
+#define CRED_PENDING_SLOTS 4 // USER→PASS / AUTH-LOGIN-Korrelation pro (ip,port)
 #define CRED_PENDING_TTL_MS 60000
 
 // URL-Tracking-Map (für Inject-URL-Lookup): pro (server_ip, victim_port) den
 // letzten gesehenen Host+Path aus dem HTTP-Request behalten. Wird vom
 // parse_http für JEDEN HTTP-Request (auch GET) beschrieben.
-#define HTTP_URL_TRACK_SLOTS 16
+#define HTTP_URL_TRACK_SLOTS 8
 
 // Zustände eines pending-Eintrags:
 #define PEND_FREE 0

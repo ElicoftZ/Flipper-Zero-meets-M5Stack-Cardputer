@@ -3,6 +3,7 @@
 #include "../helpers/nrf24_channel_source.h"
 #include "../helpers/nrf24_jam_config.h"
 
+#include <dolphin/dolphin.h>
 #include <furi.h>
 #include <esp_rom_sys.h>
 #include <esp_timer.h>
@@ -266,6 +267,9 @@ void nrf24_app_scene_jam_on_enter(void* context) {
     ctx->active = false;
     ctx->active_strategy = Nrf24StrategyCw;
     g_ctx = ctx;
+
+    /* Award XP for using the NRF24 radio (shares the SubGHz daily bucket). */
+    dolphin_deed(DolphinDeedNrf24Send);
 
     char sel[20];
     nrf24_source_selection_label(app, sel, sizeof(sel));

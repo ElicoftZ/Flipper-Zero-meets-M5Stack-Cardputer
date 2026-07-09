@@ -58,7 +58,7 @@
 /* Normal 2 Mbps, max PA */
 #define NRF_RF_SETUP_2M_MAX 0x0E
 
-static const GpioPin nrf24_ce = {.port = NULL, .pin = BOARD_PIN_NRF24_CE};
+#define nrf24_ce gpio_nrf24_ce
 
 void nrf24_hw_init(void) {
     furi_hal_gpio_init_simple(&nrf24_ce, GpioModeOutputPushPull);

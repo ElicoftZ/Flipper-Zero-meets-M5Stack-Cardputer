@@ -15,6 +15,7 @@
  * leaked/fragmented the heap, opening here would OOM mid-view-alloc and crash
  * (StoreProhibited writing a NULL view model). Refuse gracefully below this. */
 #define WLAN_APP_MIN_FREE_INTERNAL (55 * 1024)
+#define WLAN_APP_MIN_LARGEST_INTERNAL (28 * 1024)
 
 static bool wlan_app_custom_event_callback(void* context, uint32_t event) {
     furi_assert(context);
@@ -340,6 +341,26 @@ static void wlan_app_flush_and_reset(void) {
 int32_t wlan_app(void* args) {
     UNUSED(args);
 
+    /* One-time warning: on this no-PSRAM board the WiFi app releases the BLE
+     * controller RAM on entry and soft-resets on exit to give Bluetooth its RAM
+     * back — so opening WiFi can reboot the device. Warn before we release any
+     * RAM so the user can back out cleanly. */
+    {
+        DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+        DialogMessage* msg = dialog_message_alloc();
+        dialog_message_set_header(msg, "WiFi", 64, 8, AlignCenter, AlignTop);
+        dialog_message_set_text(
+            msg, "This app can trigger\na soft reset.", 64, 34, AlignCenter, AlignCenter);
+        dialog_message_set_buttons(msg, "Back", NULL, "OK");
+        DialogMessageButton res = dialog_message_show(dialogs, msg);
+        dialog_message_free(msg);
+        furi_record_close(RECORD_DIALOGS);
+        if(res != DialogMessageButtonRight) {
+            /* Back or timeout — leave without touching the radios. */
+            return 0;
+        }
+    }
+
     /* Big FAP Mode blocks the radios so heavy apps keep the heap. */
     if(furi_hal_big_fap_is_active()) {
         DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
@@ -363,7 +384,8 @@ int32_t wlan_app(void* args) {
      * (e.g. right after a radio app like BLE Spam leaked memory) — otherwise a
      * view allocation returns NULL and we crash on first use. */
     size_t freeh = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    if(freeh < WLAN_APP_MIN_FREE_INTERNAL) {
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    if(freeh < WLAN_APP_MIN_FREE_INTERNAL || largest < WLAN_APP_MIN_LARGEST_INTERNAL) {
         DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
         DialogMessage* msg = dialog_message_alloc();
         dialog_message_set_header(msg, "WiFi Unavailable", 64, 8, AlignCenter, AlignTop);

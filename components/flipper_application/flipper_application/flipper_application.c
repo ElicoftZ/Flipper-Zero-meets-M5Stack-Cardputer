@@ -227,27 +227,12 @@ static int32_t flipper_application_thread(void* context) {
     FlipperApplicationEntryPoint entry_point = elf_file_get_entry_point(app->elf);
     FURI_LOG_I(TAG, "FAP entry point: %p, calling...", entry_point);
 
-    /* Dump literal pool (first 64 bytes of .text data bus) to verify relocations */
-    uint32_t entry_addr = (uint32_t)entry_point;
-    uint32_t data_base = entry_addr;
-    if(data_base >= 0x42000000 && data_base < 0x44000000) {
-        data_base -= 0x06000000;
-    }
-    /* The literal pool is at the START of .text, before the entry point */
-    /* Find .text base by going back from entry point */
-    /* For now, just dump what's around the entry point's data bus mirror */
-    /* Actually, we know the text section start from relocation */
-    /* Let's just look at the first 64 bytes of the loaded .text */
-    FURI_LOG_I(TAG, "=== Literal pool dump (data bus, first 16 words) ===");
-    /* The text section data pointer is entry minus entry_offset */
-    /* entry_offset is the ELF e_entry field */
-    /* We can compute: text_data = entry_data - elf_entry_offset */
-    /* But we don't have elf_entry_offset here. Let's dump relative to data_base */
-    /* Scan backwards to find likely start of .text (aligned to 4) */
-    volatile uint32_t* dp = (volatile uint32_t*)(data_base - 256); /* ~256 bytes before entry */
-    for(int i = 0; i < 16; i++) {
-        FURI_LOG_I(TAG, "  [%p] = 0x%08lX", (void*)(dp + i), (unsigned long)dp[i]);
-    }
+    /* NOTE: a debug "literal pool dump" used to be here. It data-READ the bytes
+     * around the entry via `data_base - 256`, converting only the PSRAM range
+     * (0x42..→0x3C..). On the no-PSRAM path the entry is an internal-SRAM
+     * instruction address (0x403x..) which is FETCH-ONLY — the data read faulted
+     * with "Cache disabled but cached memory region accessed" before the FAP ever
+     * ran. Removed; the entry is executed directly below. */
 
     /* Test: call furi_record_open from FIRMWARE context to verify it works */
     FURI_LOG_I(TAG, "Test: furi_record_open from firmware...");

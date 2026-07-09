@@ -79,6 +79,17 @@ void furi_hal_speaker_stop(void);
  */
 void furi_hal_speaker_start_gdo_mirror(const GpioPin* gdo_pin, float volume);
 
+/* --- Shared audio internals for the microphone HAL (furi_hal_mic.c) ---
+ * On boards where the mic is the ES8311 codec ADC, capture shares the speaker's
+ * full-duplex I2S channel and codec. These are defined only on such boards and
+ * only referenced from furi_hal_mic.c's mic-enabled build path. */
+
+/** Full-duplex I2S RX channel handle (i2s_chan_handle_t as void*), or NULL. */
+void* furi_hal_speaker_i2s_rx_handle(void);
+
+/** Idempotently apply the ES8311 ADC/mic register sequence (brings up capture). */
+void furi_hal_speaker_es8311_adc_init(void);
+
 #ifdef __cplusplus
 }
 #endif

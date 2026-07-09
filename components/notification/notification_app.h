@@ -104,6 +104,15 @@ struct NotificationApp {
     FuriTimer* led_off_timer;
     FuriTimer* led_effect_timer;
     FuriTimer* ui_spectrum_timer;
+    FuriTimer* sleep_timer; /* idle → ESP32 light sleep (2 min, reset on input) */
+
+    /* Status LED (lock-menu toggle): drive the WS2812 as a battery/BT/action
+     * indicator instead of the ambient color. Persisted in its own tiny file so
+     * enabling it never resets the user's other notification settings. */
+    FuriTimer* status_led_timer;  /* periodic ~1s recompute */
+    bool status_led_on;
+    uint32_t status_action_until; /* ticks; WS2812 shows orange while now < this */
+    void* status_bt_rec;          /* cached Bt* (RECORD_BT), opened lazily */
 
     NotificationDisplayLayer display;
     bool display_led_lock;
@@ -131,6 +140,12 @@ void notification_apply_ui_color(NotificationApp* app);
 /** Night-shift timer control (used by settings app). */
 void night_shift_timer_start(NotificationApp* app);
 void night_shift_timer_stop(NotificationApp* app);
+
+/** Status LED mode (lock-menu toggle). When on, the WS2812 shows a status color
+ * (action=orange, BT connecting=blue, battery low=red / ok=green) instead of the
+ * ambient color, and goes dark during ESP32 light sleep. Persisted separately. */
+void notification_status_led_set(NotificationApp* app, bool on);
+bool notification_status_led_get(NotificationApp* app);
 
 #ifdef __cplusplus
 }

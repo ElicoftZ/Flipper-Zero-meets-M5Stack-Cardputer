@@ -14,7 +14,7 @@
 #include <furi.h>
 
 #define TAG "WlanNetscan"
-#define WLAN_NETSCAN_MAX_HOSTS 64
+#define WLAN_NETSCAN_MAX_HOSTS 32
 
 static WlanNetscanHost s_hosts[WLAN_NETSCAN_MAX_HOSTS];
 static uint8_t s_host_count = 0;

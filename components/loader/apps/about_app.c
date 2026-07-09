@@ -42,7 +42,7 @@ int32_t about_app(void* p) {
         AlignTop,
         FontSecondary,
         BOARD_NAME "\n"
-        "FW: 1.14 - Elicoft");
+        "FW: 1.16 - Elicoft");
 
     View* widget_view = widget_get_view(app->widget);
     view_set_previous_callback(widget_view, about_app_exit);

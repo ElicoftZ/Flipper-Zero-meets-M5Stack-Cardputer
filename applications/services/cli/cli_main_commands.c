@@ -53,7 +53,7 @@ void cli_command_uptime(PipeSide* pipe, FuriString* args, void* context) {
     UNUSED(pipe);
     UNUSED(args);
     UNUSED(context);
-    uint32_t uptime = furi_get_tick() / furi_kernel_get_tick_frequency();
+    uint32_t uptime = furi_hal_power_get_uptime_sec(); /* includes light-sleep time */
     printf("Uptime: %luh%lum%lus", uptime / 60 / 60, uptime / 60 % 60, uptime % 60);
 }
 

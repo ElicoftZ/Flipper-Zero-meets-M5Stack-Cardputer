@@ -1,0 +1,46 @@
+# Cardputer-ADV internalized build of ZeroFIDO (FIDO2/CTAP2).
+# The upstream application.fam selects a transport profile from env vars; on this
+# port there is no NFC front-end and .fap loading is unavailable, so we hardcode
+# the USB (CTAPHID-over-USB-HID) profile and compile it into the firmware.
+# U2F-HID transport is provided by components/furi_hal/furi_hal_usb_hid_u2f.h.
+
+App(
+    appid="zerofido",
+    name="ZeroFIDO",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="zerofido_main",
+    stack_size=8 * 1024,
+    sources=[
+        "*.c",
+        "!nfc_*.c",  # ZF_USB_ONLY: exclude the NFC transport
+        "!zerofido_usb_diagnostics.c",  # ZF_USB_DIAGNOSTICS=0
+        "!*_test.c",
+        "!test_*.c",
+        "!*_debug.c",
+        "!debug_*.c",
+        "!*_diag.c",
+        "!diag_*.c",
+        "!*_fixture.c",
+        "!fixture_*.c",
+    ],
+    cdefines=[
+        "ZF_USB_ONLY",
+        "ZF_RELEASE_DIAGNOSTICS=0",
+        "ZF_USB_DIAGNOSTICS=0",
+        "ZF_AUTO_ACCEPT_REQUESTS=0",
+        "ZF_DEV_SCREENSHOT=0",
+        "ZF_DEV_FIDO2_1=0",
+        "ZF_PACKED_ATTESTATION=1",
+    ],
+    requires=[
+        "gui",
+        "storage",
+        "notification",
+    ],
+    order=20,
+    fap_icon="icon.png",
+    fap_category="Tools",
+    fap_description="FIDO2 / passkey authenticator (USB CTAPHID)",
+    fap_author="Alex Stoyanov",
+    fap_version="0.7",
+)

@@ -1,0 +1,13 @@
+App(
+    appid="animation_customize",
+    name="Animation Customize",
+    apptype=FlipperAppType.EXTSETTINGS,
+    entry_point="animation_customize_app",
+    requires=[
+        "gui",
+        "storage",
+        "power",
+    ],
+    stack_size=2 * 1024,
+    order=45,
+)

@@ -14,6 +14,11 @@ extern "C" {
 bool furi_hal_usb_hid_backend_start(const FuriHalUsbHidConfig* cfg);
 void furi_hal_usb_hid_backend_stop(void);
 
+/* U2F/FIDO CTAPHID HID device backend (installs a U2F HID descriptor instead of
+ * the keyboard/mouse one). Reinstalls TinyUSB with the U2F config. */
+bool furi_hal_usb_hid_u2f_backend_start(void);
+void furi_hal_usb_hid_u2f_backend_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

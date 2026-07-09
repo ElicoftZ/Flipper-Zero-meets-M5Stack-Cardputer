@@ -1,0 +1,94 @@
+M5Stack Cardputer-ADV — External Module Pinout
+Source: components/furi_hal/boards/board_m5stack_cardputer_adv.h
+MCU: ESP32-S3FN8 (8MB flash, NO PSRAM)
+
+=== LCD — ST7789V2 240x135 (SPI2) ===
+MOSI   GPIO35
+SCLK   GPIO36
+CS     GPIO37
+DC     GPIO34
+RST    GPIO33
+BL     GPIO38
+MISO   n/a (not connected)
+
+=== SD Card (SPI3) ===
+CS     GPIO12
+MOSI   GPIO14
+MISO   GPIO39
+SCLK   GPIO40
+
+=== Keyboard — TCA8418 (I2C_NUM_0) ===
+SDA    GPIO8
+SCL    GPIO9
+INT    GPIO11
+Addr   0x34
+
+=== SubGHz — CC1101 (SPI3, shared w/ SD via CS-mux) ===
+SCK    GPIO40
+MISO   GPIO39
+MOSI   GPIO14
+CSN    GPIO13
+GDO0   GPIO5
+GDO2   n/a
+SW1/SW0 n/a
+
+=== NRF24L01 (SPI3, shared bus) ===
+SCK    GPIO40
+MISO   GPIO39
+MOSI   GPIO14
+CSN    GPIO6
+CE     GPIO4
+
+=== Audio — ES8311 Codec (I2S + I2C_NUM_0) ===
+I2S SCLK/BCLK  GPIO41
+I2S LRCK/WCLK  GPIO43
+I2S DOUT       GPIO42
+I2S MCLK       GPIO0
+I2C (control)  I2C_NUM_0, addr 0x18 (shared bus w/ keyboard + IMU)
+
+=== Microphone ===
+MIC DATA   GPIO46
+MIC CLK    GPIO43  (shared with I2S LRCK)
+
+=== IMU — BMI270 (I2C_NUM_0) ===
+Addr   0x68 (shared bus w/ keyboard + codec)
+
+=== IR ===
+TX     GPIO44
+RX     GPIO1   *** CONFLICTS with Qwiic/Grove SCL (GPIO1) — see note below ***
+
+=== Grove / Qwiic I2C (I2C_NUM_1) ===
+SDA    GPIO2
+SCL    GPIO1   *** CONFLICTS with IR RX (GPIO1) — see note below ***
+
+=== NFC — WS1850S / PN532 via Grove (I2C_NUM_1) ===
+SCL    = Qwiic SCL (GPIO1)
+SDA    = Qwiic SDA (GPIO2)
+IRQ    n/a
+RST    n/a
+Addr   0x28
+
+=== RGB LED — WS2812 ===
+DATA   GPIO21
+Count  1
+
+=== Misc ===
+BOOT button    GPIO0  (also I2S MCLK — shared)
+Battery ADC    GPIO10
+
+=== NOT PRESENT on this board ===
+Encoder / rotary (A, B, BTN)
+Extra button (BUTTON_KEY)
+Touch controller (SCL/SDA/RST/INT)
+Power enable pin
+RFID / RDM6300 (UART)
+BQ27220/BQ25896 fuel gauge I2C (battery is read via ADC on GPIO10 instead)
+
+=== FLAGGED CONFLICT ===
+BOARD_PIN_IR_RX (GPIO1) and BOARD_PIN_QWIIC_SCL / BOARD_PIN_NFC_SCL (GPIO1)
+are defined to the same physical pin in board_m5stack_cardputer_adv.h.
+Also note: GPIO0 is shared between BOOT button and I2S_MCLK, and GPIO43 is
+shared between I2S_LRCK and MIC_CLK — these look like intentional pin reuse
+(strapping pin / same clock line), but the IR_RX vs Qwiic_SCL overlap looks
+like it could be a genuine conflict worth double-checking against the actual
+hardware/schematic.

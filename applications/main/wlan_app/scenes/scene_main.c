@@ -12,6 +12,7 @@ enum MainIndex {
     MainIndexChannelSsidSpam = 13,
     MainIndexChannelEvilPortal = 14,
     MainIndexUpdateSd = 15,
+    MainIndexChannelPcap = 16,
 };
 
 static void wlan_app_scene_main_submenu_cb(void* context, uint32_t index) {
@@ -60,6 +61,9 @@ void wlan_app_scene_main_on_enter(void* context) {
         wlan_app_scene_main_submenu_cb, app);
     submenu_add_item(
         app->submenu, "Sniffer", MainIndexChannelSniffer,
+        wlan_app_scene_main_submenu_cb, app);
+    submenu_add_item(
+        app->submenu, "Packet Capture", MainIndexChannelPcap,
         wlan_app_scene_main_submenu_cb, app);
     submenu_add_item(
         app->submenu, "SSID Spam", MainIndexChannelSsidSpam,
@@ -123,6 +127,15 @@ bool wlan_app_scene_main_on_event(void* context, SceneManagerEvent event) {
             break;
         case MainIndexChannelSniffer:
             app->channel_mode_active = true;
+            app->sniffer_capture_mode = false;
+            if(app->channel_action_channel == 0) app->channel_action_channel = 1;
+            scene_manager_next_scene(app->scene_manager, WlanAppScenePackageSniffer);
+            consumed = true;
+            break;
+        case MainIndexChannelPcap:
+            // Same sniffer scene, but writes every frame to a .pcap on SD.
+            app->channel_mode_active = true;
+            app->sniffer_capture_mode = true;
             if(app->channel_action_channel == 0) app->channel_action_channel = 1;
             scene_manager_next_scene(app->scene_manager, WlanAppScenePackageSniffer);
             consumed = true;

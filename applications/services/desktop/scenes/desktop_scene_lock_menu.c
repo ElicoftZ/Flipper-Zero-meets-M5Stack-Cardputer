@@ -78,7 +78,8 @@ static void desktop_scene_lock_menu_refresh(Desktop* desktop) {
         qflipper_bridge_is_active(),
         desktop_lock_menu_bt_enabled(),
         desktop_lock_menu_bruce_available(),
-        furi_hal_big_fap_is_active());
+        furi_hal_big_fap_is_active(),
+        notification_status_led_get(desktop->notification));
 }
 
 void desktop_scene_lock_menu_on_enter(void* context) {
@@ -140,6 +141,13 @@ bool desktop_scene_lock_menu_on_event(void* context, SceneManagerEvent event) {
             } else {
                 furi_hal_big_fap_enter();
             }
+            consumed = true;
+            break;
+
+        case DesktopLockMenuEventStatusLedToggle:
+            notification_status_led_set(
+                desktop->notification, !notification_status_led_get(desktop->notification));
+            desktop_scene_lock_menu_refresh(desktop);
             consumed = true;
             break;
 

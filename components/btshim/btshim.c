@@ -37,8 +37,13 @@
  * thread. BLE serial delivers ~155-byte packets and the feeder drains fast, so
  * 8 KB was hugely oversized for a no-PSRAM board where every KB counts at the
  * moment the phone connects (BT stack + connection leave only a few KB free,
- * and rpc_session_open then needs its own ~6 KB). 2 KB (~13 packets) is plenty. */
-#define BT_RX_STREAM_SIZE     (2048)
+ * and rpc_session_open then needs its own ~6 KB). 1 KB (~6 packets) is enough. */
+#define BT_RX_STREAM_SIZE     (1024)
+
+#define BT_RPC_MIN_FREE_INTERNAL    (24 * 1024)
+#define BT_RPC_MIN_LARGEST_INTERNAL (8 * 1024)
+#define BT_RX_THREAD_MIN_FREE_INTERNAL    (10 * 1024)
+#define BT_RX_THREAD_MIN_LARGEST_INTERNAL (6 * 1024)
 
 /* Use ESP_LOG for BLE/RPC debug since FURI_LOG may not work in BTC task context */
 #define BT_LOG_I(fmt, ...) ESP_LOGI("BtSrv", fmt, ##__VA_ARGS__)
@@ -56,6 +61,10 @@ void bt_mark_mem_released(void) {
 }
 bool bt_is_mem_released(void) {
     return s_bt_mem_released;
+}
+
+BtStatus bt_get_status(Bt* bt) {
+    return bt ? bt->status : BtStatusUnavailable;
 }
 
 #define ICON_SPACER          2
@@ -348,32 +357,46 @@ static void bt_open_rpc_connection(Bt* bt) {
         BT_LOG_I("Profile is_serial=%d", is_serial);
         if(is_serial) {
             /* Opening the RPC session allocates ~6 KB (stream buffer + PB_Main)
-             * and the RX feeder thread another 2 KB. On this no-PSRAM board the
+             * and the RX feeder thread another stack allocation. On this no-PSRAM board the
              * BLE stack + an active connection can leave less than that free, in
              * which case those allocations abort (furi_check / xTaskCreate) and
              * reboot the device. Guard: if the heap is too low, leave the link
              * connected but skip RPC setup instead of crashing. The phone shows
              * connected-but-idle rather than taking the whole device down. */
             size_t freeh = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-            if(freeh < 12 * 1024) {
+            size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+            if(freeh < BT_RPC_MIN_FREE_INTERNAL || largest < BT_RPC_MIN_LARGEST_INTERNAL) {
                 BT_LOG_E(
-                    "Low RAM (%u free): skipping RPC-over-BLE to avoid OOM crash",
-                    (unsigned)freeh);
+                    "Low RAM (%u free, %u largest): skipping RPC-over-BLE",
+                    (unsigned)freeh,
+                    (unsigned)largest);
                 return;
             }
             bt->rpc_session = rpc_session_open(bt->rpc, RpcOwnerBle);
             if(bt->rpc_session) {
                 BT_LOG_I("RPC session opened OK");
-                rpc_session_set_send_bytes_callback(bt->rpc_session, bt_rpc_send_bytes_callback);
-                rpc_session_set_buffer_is_empty_callback(
-                    bt->rpc_session, bt_serial_buffer_is_empty_callback);
-                rpc_session_set_context(bt->rpc_session, bt);
-                /* Start RX feeder thread. 2 KB stack is enough: it only waits on
+                /* Start RX feeder thread. It only waits on
                  * a flag, drains the RX stream buffer, and calls rpc_session_feed
                  * (a shallow stream_buffer_send -- protobuf decode runs on the
                  * separate RPC thread). Allocated here at connect time when the
                  * heap is tightest, so keep it small. */
                 furi_stream_buffer_reset(bt->rx_stream);
+                freeh = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+                largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+                if(freeh < BT_RX_THREAD_MIN_FREE_INTERNAL ||
+                   largest < BT_RX_THREAD_MIN_LARGEST_INTERNAL) {
+                    BT_LOG_E(
+                        "Low RAM after RPC open (%u free, %u largest): closing RPC",
+                        (unsigned)freeh,
+                        (unsigned)largest);
+                    rpc_session_close(bt->rpc_session);
+                    bt->rpc_session = NULL;
+                    return;
+                }
+                rpc_session_set_send_bytes_callback(bt->rpc_session, bt_rpc_send_bytes_callback);
+                rpc_session_set_buffer_is_empty_callback(
+                    bt->rpc_session, bt_serial_buffer_is_empty_callback);
+                rpc_session_set_context(bt->rpc_session, bt);
                 bt->rx_thread = furi_thread_alloc_ex(
                     "BtRxFeeder", 2048, bt_rx_feeder_thread, bt);
                 furi_thread_start(bt->rx_thread);
@@ -709,6 +732,25 @@ static void bt_handle_start_stack(Bt* bt) {
     if(!bt->bt_settings.enabled) {
         FURI_LOG_I(TAG, "BT disabled, leaving stack down");
         bt->status = BtStatusOff;
+        return;
+    }
+
+    /* Crash guard: bringing up the controller + Bluedroid reserves ~64 KB. If the
+     * heap is already too low the alloc OOM-aborts *inside* ESP-IDF (before
+     * furi_hal_bt_start_radio_stack() can return false), taking the firmware down.
+     * Check first and refuse gracefully — this is the fix for "BT reboots when
+     * turned on" on this no-PSRAM board. */
+    size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    if(free_internal < BT_MIN_FREE_INTERNAL || largest_internal < BT_MIN_LARGEST_INTERNAL) {
+        FURI_LOG_W(
+            TAG,
+            "Only %u B free / %u B largest (need %u / %u); refusing BLE start",
+            (unsigned)free_internal,
+            (unsigned)largest_internal,
+            (unsigned)BT_MIN_FREE_INTERNAL,
+            (unsigned)BT_MIN_LARGEST_INTERNAL);
+        bt->status = BtStatusUnavailable;
         return;
     }
 

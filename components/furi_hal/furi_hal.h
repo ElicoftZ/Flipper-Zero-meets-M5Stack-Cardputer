@@ -28,6 +28,10 @@ extern "C" {
 #include <furi_hal_nfc.h>
 #include <furi_hal_infrared.h>
 #include <furi_hal_rfid.h>
+#include <furi_hal_serial.h>
+#include <furi_hal_serial_control.h>
+#include <furi_hal_bus.h>
+#include <furi_hal_module_pins.h>
 
 void furi_hal_init_early(void);
 void furi_hal_deinit_early(void);

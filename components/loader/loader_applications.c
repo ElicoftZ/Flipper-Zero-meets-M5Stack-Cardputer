@@ -6,10 +6,14 @@
 #include <gui/gui.h>
 #include <gui/view_holder.h>
 #include <gui/modules/loading.h>
+#include <gui/modules/submenu.h>
 #include <toolbox/path.h>
 #include <esp_rom_sys.h>
+#include <applications.h>
 
 #define TAG "LoaderApplications"
+#define SELECT_EVENT (1u << 0)
+#define EXIT_EVENT   (1u << 1)
 
 struct LoaderApplications {
     FuriThread* thread;
@@ -52,6 +56,8 @@ typedef struct {
     Gui* gui;
     ViewHolder* view_holder;
     Loading* loading;
+    uint32_t selected_index;
+    FuriThreadId thread_id;
 } LoaderApplicationsApp;
 
 static LoaderApplicationsApp* loader_applications_app_alloc(void) {
@@ -164,26 +170,58 @@ static void
     furi_thread_flags_clear(APPLICATION_STOP_EVENT);
 }
 
+static void loader_applications_back_callback(void* context) {
+    LoaderApplicationsApp* app = context;
+    furi_thread_flags_set(app->thread_id, EXIT_EVENT);
+}
+
+static void loader_applications_submenu_callback(void* context, uint32_t index) {
+    LoaderApplicationsApp* app = context;
+    app->selected_index = index;
+    furi_thread_flags_set(app->thread_id, SELECT_EVENT);
+}
+
 static int32_t loader_applications_thread(void* p) {
     LoaderApplications* loader_applications = p;
     loader_applications_trace("thread_start");
     LoaderApplicationsApp* app = loader_applications_app_alloc();
+    app->thread_id = furi_thread_get_current_id();
     loader_applications_trace("app_alloc");
 
-    view_holder_set_view(app->view_holder, loading_get_view(app->loading));
+    Submenu* submenu = submenu_alloc();
+    submenu_set_header(submenu, "Applications");
+    for(size_t i = 0; i < FLIPPER_INTERNAL_EXTERNAL_APPS_COUNT; i++) {
+        submenu_add_item(
+            submenu,
+            FLIPPER_INTERNAL_EXTERNAL_APPS[i].name,
+            i,
+            loader_applications_submenu_callback,
+            app);
+    }
 
-    while(loader_applications_select_app(app)) {
-        if(furi_string_end_with(app->file_path, ".js")) {
-            loader_applications_trace("launch_js");
-            loader_applications_start_app(
-                app, "js_app", furi_string_get_cstr(app->file_path));
-        } else {
-            loader_applications_trace("launch_fap");
-            loader_applications_start_app(app, furi_string_get_cstr(app->file_path), NULL);
+    view_holder_set_back_callback(app->view_holder, loader_applications_back_callback, app);
+    view_holder_set_view(app->view_holder, submenu_get_view(submenu));
+
+    while(true) {
+        uint32_t flags = furi_thread_flags_wait(SELECT_EVENT | EXIT_EVENT, FuriFlagWaitAny, FuriWaitForever);
+        if(flags & EXIT_EVENT) {
+            break;
+        }
+        if(flags & SELECT_EVENT) {
+            // Temporarily hide the menu so the launched app can use the screen
+            view_holder_set_view(app->view_holder, NULL);
+            
+            // Start the selected app
+            const char* app_name = FLIPPER_INTERNAL_EXTERNAL_APPS[app->selected_index].path;
+            loader_applications_start_app(app, app_name, NULL);
+            
+            // Restore the submenu after the app finishes
+            view_holder_set_view(app->view_holder, submenu_get_view(submenu));
         }
     }
 
     view_holder_set_view(app->view_holder, NULL);
+    submenu_free(submenu);
     loader_applications_app_free(app);
     loader_applications_trace("app_free");
 

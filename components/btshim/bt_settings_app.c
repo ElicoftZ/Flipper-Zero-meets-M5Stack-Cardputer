@@ -6,6 +6,7 @@
 #include <dialog_ex.h>
 #include <popup.h>
 #include <variable_item_list.h>
+#include <esp_heap_caps.h>
 
 #define TAG "BtSettings"
 
@@ -75,6 +76,29 @@ static void bt_settings_toggle_callback(VariableItem* item) {
      * RPC connection. Do NOT merge this toggle change to master as-is. */
     app->settings.enabled = (index == 1);
     variable_item_set_current_value_text(item, bt_setting_text[index]);
+
+    /* Refuse to enable when the heap is too low to bring up the BLE stack
+     * (~64 KB). The service layer guards this too, but checking here keeps the
+     * toggle from persisting an ON that the service will silently reject, and
+     * gives the user immediate feedback. */
+    if(app->settings.enabled) {
+        size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+        if(free_internal < BT_MIN_FREE_INTERNAL || largest_internal < BT_MIN_LARGEST_INTERNAL) {
+            app->settings.enabled = false;
+            variable_item_set_current_value_index(item, 0);
+            variable_item_set_current_value_text(item, bt_setting_text[0]);
+            bt_settings_show_result(
+                app, "Bluetooth", "Not enough RAM.\nClose apps or reboot,\nthen retry.");
+            FURI_LOG_W(
+                TAG,
+                "BT enable refused: %u B free, %u B largest",
+                (unsigned)free_internal,
+                (unsigned)largest_internal);
+            return;
+        }
+    }
+
     bt_set_settings(app->bt, &app->settings);
     if(app->settings.enabled) {
         bt_settings_show_result(

@@ -15,9 +15,9 @@ CONFIG_PARTITION_TABLE_FILENAME="partitions_singleapp_large.csv"
 
 # =============================================================================
 # PSRAM Configuration
-# The Cardputer-ADV (ESP32-S3FN8) has NO PSRAM, so SPIRAM stays disabled. This
-# leaves ~200 KB of internal heap: built-in apps run, but external FAPs that load
-# code into PSRAM (doom, wolf3d, etc.) cannot run on this hardware.
+# The Cardputer-ADV (ESP32-S3FN8) has NO PSRAM, so SPIRAM stays disabled. FAPs
+# are instead loaded into a reserved internal-SRAM code pool (see the FAP loader
+# / elf_file.c) rather than PSRAM.
 # =============================================================================
 CONFIG_SPIRAM=n
 

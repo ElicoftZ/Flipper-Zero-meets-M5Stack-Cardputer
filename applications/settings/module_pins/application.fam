@@ -1,0 +1,11 @@
+App(
+    appid="module_pins_settings",
+    name="Module Pins",
+    apptype=FlipperAppType.SETTINGS,
+    entry_point="module_pins_settings_app",
+    requires=[
+        "gui",
+    ],
+    stack_size=2 * 1024,
+    order=40,
+)

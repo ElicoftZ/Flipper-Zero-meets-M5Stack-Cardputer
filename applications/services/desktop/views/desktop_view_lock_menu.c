@@ -5,7 +5,7 @@
 #include "../desktop_i.h"
 #include "desktop_view_lock_menu.h"
 
-#define LOCK_MENU_MAX_ITEMS 7
+#define LOCK_MENU_MAX_ITEMS 8
 
 // Menu items and events are built dynamically from the current toggle states:
 //   qFlipper       Enable/Disable (background RPC bridge)   [USB-OTG only]
@@ -41,7 +41,8 @@ static void lock_menu_build_items(
     bool qflipper_on,
     bool bt_on,
     bool bruce_available,
-    bool big_fap_on) {
+    bool big_fap_on,
+    bool status_led_on) {
     s_item_count = 0;
 
     /* Big FAP Mode active: the radios are blocked so heavy apps get max heap.
@@ -78,6 +79,11 @@ static void lock_menu_build_items(
 
     /* Enter Big FAP Mode: reboot into a clean, max-heap state for heavy apps. */
     s_items[s_item_count++] = (LockMenuItem){"Big FAP Mode", DesktopLockMenuEventBigFapToggle};
+
+    /* Status LED: WS2812 shows battery / BT / action state (off during sleep). */
+    s_items[s_item_count++] = (LockMenuItem){
+        status_led_on ? "Disable Status LED" : "Enable Status LED",
+        DesktopLockMenuEventStatusLedToggle};
 }
 
 void desktop_lock_menu_set_callback(
@@ -102,8 +108,10 @@ void desktop_lock_menu_set_states(
     bool qflipper_on,
     bool bt_on,
     bool bruce_available,
-    bool big_fap_on) {
-    lock_menu_build_items(usb_available, qflipper_on, bt_on, bruce_available, big_fap_on);
+    bool big_fap_on,
+    bool status_led_on) {
+    lock_menu_build_items(
+        usb_available, qflipper_on, bt_on, bruce_available, big_fap_on, status_led_on);
     /* Index nicht resetten — Caller (refresh nach Toggle) erwartet, dass die
      * Selektion stehen bleibt; bei out-of-range clampen wir, damit der Wechsel
      * vom Master- in den Off-Modus (verliert "Mesh Clients") nicht ins Leere
@@ -205,7 +213,7 @@ DesktopLockMenuView* desktop_lock_menu_alloc(void) {
     view_set_input_callback(lock_menu->view, desktop_lock_menu_input_callback);
 
     // Default until the scene fills in real states on enter.
-    lock_menu_build_items(false, false, false, false, false);
+    lock_menu_build_items(false, false, false, false, false, false);
 
     return lock_menu;
 }

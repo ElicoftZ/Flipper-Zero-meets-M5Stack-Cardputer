@@ -42,14 +42,18 @@ static inline void* elf_psram_malloc(size_t size) {
 
 #define ELF_INVALID_ADDRESS 0xFFFFFFFF
 
-/* ESP32-S3: Convert PSRAM data bus address to instruction bus address.
- * Same physical memory, different virtual address:
- *   Data bus:        0x3C000000 - 0x3DFFFFFF
- *   Instruction bus: 0x42000000 - 0x43FFFFFF
- * Offset: 0x06000000 */
+/* ESP32-S3: convert a data-bus address of loaded CODE to its instruction-bus
+ * alias so the CPU can fetch it. Two dual-mapped regions, same physical memory:
+ *   PSRAM (T-Embed, has PSRAM):    data 0x3C00_0000-0x3DFF_FFFF -> +0x0600_0000 (0x42..)
+ *   Internal SRAM1 (no-PSRAM ADV): data 0x3FC8_8000-0x3FCF_FFFF -> +0x006F_0000 (0x4037..)
+ * Apply ONLY to code addresses — elf_address_of() already leaves data addresses
+ * unconverted, and internal SRAM's instruction alias is FETCH-ONLY (not data-
+ * readable), unlike PSRAM's 0x42.. which is icache-readable as data. */
 #ifdef ESP_PLATFORM
-#define PSRAM_DATA_TO_INST(addr) \
-    (((addr) >= 0x3C000000 && (addr) < 0x3E000000) ? ((addr) + 0x06000000) : (addr))
+#define PSRAM_DATA_TO_INST(addr)                                             \
+    (((addr) >= 0x3C000000 && (addr) < 0x3E000000) ? ((addr) + 0x06000000) : \
+     ((addr) >= 0x3FC88000 && (addr) < 0x3FD00000) ? ((addr) + 0x006F0000) : \
+                                                     (addr))
 #else
 #define PSRAM_DATA_TO_INST(addr) (addr)
 #endif
@@ -307,7 +311,11 @@ static bool elf_relocate_slot0(Elf32_Addr relAddr, Elf32_Addr symAddr, Elf32_Swo
          * Vorherige Validation prüfte signed 16-bit Range — das blockte
          * gültige Offsets > 128 KB rückwärts (siehe Doom mit ~134 KB .text).
          * Auf ESP32-S3 muss L32R die instruction-bus-Adresse benutzen. */
-        Elf32_Addr l32r_target = PSRAM_DATA_TO_INST(symAddr + addend);
+        /* symAddr is already instruction-bus for code (elf_address_of converts
+         * STT_FUNC/.text) and data-bus for data — do NOT re-convert here, or a
+         * data literal would point at the fetch-only instruction alias on the
+         * internal-SRAM (no-PSRAM) path. */
+        Elf32_Addr l32r_target = symAddr + addend;
         Elf32_Addr pc_aligned = (instPC + 3) & ~3;
         int32_t offset = (int32_t)(l32r_target - pc_aligned);
 
@@ -553,15 +561,33 @@ static ELFLoadSectionResult
     }
 
 #ifdef ESP_PLATFORM
-    /* Force PSRAM allocation so PSRAM_DATA_TO_INST (0x3C->0x42) works.
-     * Internal DRAM (0x3FC...) has a different instruction bus mapping
-     * that our simple offset conversion doesn't handle. */
+    /* Code must live where the instruction bus can fetch it. PSRAM boards
+     * (T-Embed): PSRAM (0x3C..) maps to instr 0x42.. — keep using it. No-PSRAM
+     * boards (Cardputer-ADV): the SPIRAM alloc fails, so put EXECUTABLE sections
+     * in MALLOC_CAP_EXEC|8BIT memory — internal SRAM1, whose data addr (0x3FC8..)
+     * is writable for the memcpy AND has a fetchable instruction alias (0x4037..)
+     * that PSRAM_DATA_TO_INST maps for the entry/calls. Non-exec sections (data,
+     * rodata, bss) stay in plain data RAM. */
+    const bool section_exec = (section_header->sh_flags & SHF_EXECINSTR) != 0;
     section->data = heap_caps_aligned_alloc(
         section_header->sh_addralign,
         section_header->sh_size,
         MALLOC_CAP_SPIRAM);
+    if(!section->data && section_exec) {
+        section->data = heap_caps_aligned_alloc(
+            section_header->sh_addralign,
+            section_header->sh_size,
+            MALLOC_CAP_EXEC | MALLOC_CAP_8BIT);
+        FURI_LOG_I(
+            TAG,
+            "  exec section (idx=%u) -> %p (EXEC heap free=%u largest=%u)",
+            section->sec_idx,
+            section->data,
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_EXEC),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_EXEC));
+    }
     if(!section->data) {
-        /* Fallback to any available memory */
+        /* Fallback to any available memory (non-exec, or last resort) */
         section->data = aligned_malloc(section_header->sh_size, section_header->sh_addralign);
     }
 #else

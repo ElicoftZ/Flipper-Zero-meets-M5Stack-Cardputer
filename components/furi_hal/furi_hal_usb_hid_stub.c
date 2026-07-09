@@ -1,6 +1,7 @@
 #include "furi_hal_usb.h"
 #include "furi_hal_usb_hid.h"
 #include "furi_hal_usb_hid_backend.h"
+#include "furi_hal_usb_hid_u2f.h"
 
 #include <stddef.h>
 
@@ -83,4 +84,32 @@ bool furi_hal_hid_consumer_key_release(uint16_t button) {
 
 bool furi_hal_hid_consumer_key_release_all(void) {
     return false;
+}
+
+/* U2F/CTAPHID is unsupported without USB-OTG; no-op everything. */
+bool furi_hal_usb_hid_u2f_backend_start(void) {
+    return false;
+}
+
+void furi_hal_usb_hid_u2f_backend_stop(void) {
+    s_connected = false;
+}
+
+void furi_hal_hid_u2f_set_callback(HidU2fCallback callback, void* context) {
+    (void)callback;
+    (void)context;
+}
+
+bool furi_hal_hid_u2f_is_connected(void) {
+    return false;
+}
+
+uint32_t furi_hal_hid_u2f_get_request(uint8_t* data) {
+    (void)data;
+    return 0;
+}
+
+void furi_hal_hid_u2f_send_response(uint8_t* data, uint8_t len) {
+    (void)data;
+    (void)len;
 }

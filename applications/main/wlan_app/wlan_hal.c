@@ -13,6 +13,7 @@
 #include <freertos/queue.h>
 #include <furi.h>
 #include <btshim.h>
+#include <dolphin/dolphin.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -20,6 +21,8 @@
 // Worker macht esp_wifi/lwIP-Calls; 4096 Words (16 KB) statt 8192 (32 KB),
 // um internes RAM für esp_wifi_init zu sparen. Bei Stack-Overflow erhöhen.
 #define WLAN_HAL_WORKER_STACK 4096
+#define WLAN_HAL_MIN_FREE_INTERNAL (48 * 1024)
+#define WLAN_HAL_MIN_LARGEST_INTERNAL (24 * 1024)
 
 typedef enum {
     WCMD_INIT_START,
@@ -377,6 +380,18 @@ bool wlan_hal_start(void) {
     wlan_hal_release_bt();
     s_bt_was_on = false; // BT is fully released now; do not try to restore it
 
+    size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    if(free_internal < WLAN_HAL_MIN_FREE_INTERNAL ||
+       largest_internal < WLAN_HAL_MIN_LARGEST_INTERNAL) {
+        ESP_LOGW(
+            TAG,
+            "WiFi start refused: %u B free, %u B largest",
+            (unsigned)free_internal,
+            (unsigned)largest_internal);
+        return false;
+    }
+
     if(!wlan_ensure_worker()) return false;
 
     volatile bool result = false;
@@ -542,6 +557,9 @@ void wlan_hal_scan(wifi_ap_record_t** out_records, uint16_t* out_count, uint16_t
         },
     };
     wlan_send_cmd_sync(&cmd);
+    if(*out_count > 0) {
+        dolphin_deed(DolphinDeedWifiScan);
+    }
 }
 
 // ---------------------------------------------------------------------------

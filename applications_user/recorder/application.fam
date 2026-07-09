@@ -1,0 +1,22 @@
+# Microphone recorder for the Cardputer-ADV. MENUEXTERNAL → shows in the MAIN
+# menu (alongside GPIO/NFC/SubGHz), not inside the Applications submenu.
+# Records the ES8311 codec mic to mono 16-bit WAV on the SD card.
+
+App(
+    appid="recorder",
+    name="Recorder",
+    apptype=FlipperAppType.MENUEXTERNAL,
+    entry_point="recorder_app",
+    icon="A_Plugins_14",
+    stack_size=4 * 1024,
+    requires=[
+        "gui",
+        "storage",
+    ],
+    order=55,
+    fap_icon="icon.png",
+    fap_category="Tools",
+    fap_description="Microphone voice/audio recorder (WAV to SD)",
+    fap_author="port",
+    fap_version="1.0",
+)

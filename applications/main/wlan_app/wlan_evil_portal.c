@@ -18,10 +18,13 @@
 #include <esp_attr.h>
 #include <furi.h>
 #include <btshim.h>
+#include <dolphin/dolphin.h>
 
 #define TAG "EvilPortal"
 #define DNS_PORT 53
 #define DNS_TASK_STACK 4096
+#define EP_MIN_FREE_INTERNAL (56 * 1024)
+#define EP_MIN_LARGEST_INTERNAL (28 * 1024)
 
 static volatile bool s_running = false;
 static volatile bool s_paused = false;
@@ -1280,6 +1283,23 @@ bool wlan_hal_evil_portal_start(const WlanHalEvilPortalConfig* cfg) {
     // damit klar wird, wer das interne RAM belegt.
     heap_caps_print_heap_info(MALLOC_CAP_INTERNAL);
 
+    size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if(free_internal < EP_MIN_FREE_INTERNAL || largest_internal < EP_MIN_LARGEST_INTERNAL) {
+        ESP_LOGW(
+            TAG,
+            "start refused: %u B free, %u B largest",
+            (unsigned)free_internal,
+            (unsigned)largest_internal);
+        if(s_bt_was_on) {
+            Bt* bt2 = furi_record_open(RECORD_BT);
+            bt_start_stack(bt2);
+            furi_record_close(RECORD_BT);
+            s_bt_was_on = false;
+        }
+        return false;
+    }
+
     EpStartArgs sa = {.cfg = cfg, .result = false};
     if(!wlan_hal_run_in_worker(evil_portal_start_worker, &sa)) {
         ESP_LOGE(TAG, "start: worker dispatch failed");
@@ -1297,6 +1317,9 @@ bool wlan_hal_evil_portal_start(const WlanHalEvilPortalConfig* cfg) {
         bt_start_stack(bt2);
         furi_record_close(RECORD_BT);
         s_bt_was_on = false;
+    }
+    if(sa.result) {
+        dolphin_deed(DolphinDeedWifiPortal);
     }
     return sa.result;
 }

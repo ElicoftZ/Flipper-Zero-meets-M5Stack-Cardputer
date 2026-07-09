@@ -64,6 +64,13 @@ static FuriMutex* speaker_mutex = NULL;
 static i2s_chan_handle_t i2s_tx_handle = NULL;
 static bool i2s_channel_enabled = false;
 
+#if defined(BOARD_HAS_MIC) && BOARD_HAS_MIC
+/* Full-duplex RX side of the same I2S_NUM_0 channel: reads the ES8311 ADC (mic).
+ * Owned here (shared clocks with TX); furi_hal_mic.c drives it via the accessor. */
+static i2s_chan_handle_t i2s_rx_handle = NULL;
+static bool es8311_adc_inited = false;
+#endif
+
 /* Active mode — read by writer thread, written by API callers under ownership. */
 static volatile SpeakerMode speaker_mode = SpeakerModeIdle;
 
@@ -145,6 +152,41 @@ void furi_hal_speaker_es8311_set_volume_reg(float volume) {
     if(volume > 1.0f) volume = 1.0f;
     es8311_write(0x32, (uint8_t)(volume * 255.0f)); /* 0x00 mute .. 0xFF max */
 }
+
+#if defined(BOARD_HAS_MIC) && BOARD_HAS_MIC
+/* ES8311 ADC / microphone capture path, layered on top of es8311_ensure_init()
+ * (which brings up clocks + power). Values follow the ESP-ADF / ESPHome ES8311
+ * record init: power the ADC modulator + analog PGA, select the analog mic
+ * input, and set mic gain + ADC digital volume. Tune ES8311_MIC_GAIN / the ADC
+ * volume (reg 0x17) if recordings are too quiet or clip. */
+#define ES8311_MIC_GAIN 0x07 /* reg 0x16 PGA: 0x00 (min) .. 0x07 (max analog gain) */
+#define ES8311_ADC_VOL  0xFF /* reg 0x17 ADC digital volume: 0xBF≈0 dB .. 0xFF≈+32 dB */
+static const uint8_t es8311_adc_seq[][2] = {
+    {0x0D, 0x01}, /* power up analog (shared with DAC) */
+    {0x0E, 0x02}, /* power up ADC modulator + analog PGA */
+    {0x14, 0x5A}, /* select analog mic input (BIT6) + base 0x1A */
+    {0x16, ES8311_MIC_GAIN}, /* ADC PGA / mic gain (max) */
+    {0x17, ES8311_ADC_VOL}, /* ADC digital volume (near max — mic is quiet) */
+    {0x1C, 0x6A}, /* ADC EQ bypass + DC offset cancel */
+    {0x00, 0x80}, /* re-assert CSM power on */
+};
+
+void furi_hal_speaker_es8311_adc_init(void) {
+    if(es8311_adc_inited) return;
+    es8311_ensure_init(); /* codec base (clocks/power) must be up first */
+    es8311_adc_inited = true;
+
+    unsigned nacks = 0;
+    for(size_t i = 0; i < sizeof(es8311_adc_seq) / sizeof(es8311_adc_seq[0]); i++) {
+        if(es8311_write(es8311_adc_seq[i][0], es8311_adc_seq[i][1]) != ESP_OK) nacks++;
+    }
+    FURI_LOG_I(TAG, "ES8311 ADC/mic init done (%u write errors)", nacks);
+}
+
+void* furi_hal_speaker_i2s_rx_handle(void) {
+    return i2s_rx_handle;
+}
+#endif /* BOARD_HAS_MIC */
 #endif
 
 /* ---- Helpers ---- */
@@ -257,7 +299,14 @@ void furi_hal_speaker_init(void) {
     chan_cfg.dma_desc_num = SPEAKER_DMA_DESC_NUM;
     chan_cfg.dma_frame_num = SPEAKER_DMA_FRAME_NUM;
     chan_cfg.auto_clear = true; /* send silence when no data */
+#if defined(BOARD_HAS_MIC) && BOARD_HAS_MIC
+    /* Full-duplex: TX drives the ES8311 DAC (speaker), RX reads its ADC (mic).
+     * Both share BCLK/WS; auto_clear keeps the clock running (silence) so the
+     * mic can capture even when nothing is playing. */
+    ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &i2s_tx_handle, &i2s_rx_handle));
+#else
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &i2s_tx_handle, NULL));
+#endif
 
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SPEAKER_SAMPLE_RATE),
@@ -279,6 +328,21 @@ void furi_hal_speaker_init(void) {
         },
     };
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(i2s_tx_handle, &std_cfg));
+
+#if defined(BOARD_HAS_MIC) && BOARD_HAS_MIC
+    /* RX shares clk/slot config; only the data pin differs (DIN = mic ADC out).
+     * Non-fatal: this runs at boot, so a full-duplex hiccup must not panic the
+     * whole firmware — just disable the mic (speaker/TX stays fine). */
+    i2s_std_config_t rx_cfg = std_cfg;
+    rx_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
+    rx_cfg.gpio_cfg.din = (gpio_num_t)BOARD_PIN_MIC_DATA;
+    esp_err_t rx_err = i2s_channel_init_std_mode(i2s_rx_handle, &rx_cfg);
+    if(rx_err != ESP_OK) {
+        FURI_LOG_E(TAG, "I2S RX (mic) init failed: %d — mic disabled", rx_err);
+        i2s_del_channel(i2s_rx_handle);
+        i2s_rx_handle = NULL;
+    }
+#endif
 
     /* Start the writer thread (it idles until speaker_mode != Idle) */
     speaker_thread = furi_thread_alloc_ex("SpeakerWorker", SPEAKER_THREAD_STACK, speaker_writer_thread, NULL);
@@ -305,6 +369,14 @@ void furi_hal_speaker_deinit(void) {
     }
     i2s_del_channel(i2s_tx_handle);
     i2s_tx_handle = NULL;
+
+#if defined(BOARD_HAS_MIC) && BOARD_HAS_MIC
+    if(i2s_rx_handle) {
+        i2s_del_channel(i2s_rx_handle);
+        i2s_rx_handle = NULL;
+    }
+    es8311_adc_inited = false;
+#endif
 
     /* Free buffer */
     if(wave_buffer) {

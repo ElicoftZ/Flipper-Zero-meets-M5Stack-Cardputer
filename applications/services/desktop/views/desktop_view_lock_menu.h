@@ -37,7 +37,8 @@ void desktop_lock_menu_set_states(
     bool qflipper_on,
     bool bt_on,
     bool bruce_available,
-    bool big_fap_on);
+    bool big_fap_on,
+    bool status_led_on);
 
 DesktopLockMenuView* desktop_lock_menu_alloc(void);
 void desktop_lock_menu_free(DesktopLockMenuView* lock_menu);

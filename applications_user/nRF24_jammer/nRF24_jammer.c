@@ -7,6 +7,7 @@
 #include <nrf24.h>
 #include <storage/storage.h>
 #include <toolbox/stream/file_stream.h>
+#include "boards/board.h" /* BOARD_PIN_NRF24_CE (board-correct CE pin) */
 #include "fz_nrf24_jammer_icons.h"
 
 #define TAG "nRF24_jammer_app"
@@ -1044,17 +1045,16 @@ int32_t nRF24_jammer_app(void* p) {
     
     state->thread = furi_thread_alloc_ex("nRFJammer", 1024, jam_thread, state);
 
-    /* ESP32-Port (T-Embed): Der nRF24 hängt fest verlötet am geteilten SPI2-Bus
-     * (HW-Handle furi_hal_spi_bus_handle_nrf24, CS-gemuxt, läuft über den globalen
-     * Bus-Lock) mit CS=GPIO44 (gpio_nrf24_cs) und CE=GPIO43. Der Original-Flipper-Pfad
-     * über furi_hal_spi_bus_handle_external (Bitbang auf GPIO 9/10/11) kollidiert mit
-     * der SD-Karte/LCD und wird daher nicht benutzt. Es gibt nur ein Modul -> alle
-     * Multi-Modul-/EXTRA-Varianten kollabieren auf Single-Modul. */
-    static const GpioPin nrf24_ce_pin = {.port = NULL, .pin = 43}; /* T-Embed: GPIO43 */
+    /* ESP32-Port: the nRF24 sits on the shared SPI bus (HW handle
+     * furi_hal_spi_bus_handle_nrf24, muxed CS via the global bus lock). CS comes
+     * from the board-correct gpio_nrf24_cs symbol; CE is the board-defined pin
+     * (Cardputer-ADV = GPIO4, BOARD_PIN_NRF24_CE). The original Flipper bitbang
+     * path (furi_hal_spi_bus_handle_external) collides with the SD/LCD and is not
+     * used. There is only one module -> all multi-module variants collapse to one. */
     if(true) {
         nrf24_dev[0].spi_handle = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_nrf24;
         nrf24_dev[0].initialized = false;
-        nrf24_dev[0].ce_pin = &nrf24_ce_pin;
+        nrf24_dev[0].ce_pin = &gpio_nrf24_ce;
         nrf24_dev[0].cs_pin = &gpio_nrf24_cs;
         nrf24_init(&nrf24_dev[0]);
         for(uint8_t i = 1; i < MAX_NRF24; i++) {

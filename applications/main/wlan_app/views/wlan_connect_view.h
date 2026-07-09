@@ -3,7 +3,7 @@
 #include <gui/view.h>
 #include <gui/view_dispatcher.h>
 
-#define WLAN_CONNECT_VIEW_MAX_APS 64
+#define WLAN_CONNECT_VIEW_MAX_APS 32
 #define WLAN_CONNECT_VIEW_SSID_MAX 33
 #define WLAN_CONNECT_VIEW_MAX_MENU_ITEMS 6
 #define WLAN_CONNECT_VIEW_MENU_LABEL_MAX 20

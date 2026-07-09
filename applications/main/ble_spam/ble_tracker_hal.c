@@ -6,6 +6,7 @@
 #include <esp_log.h>
 #include <furi.h>
 #include <string.h>
+#include <dolphin/dolphin.h>
 
 #define TAG "BleTracker"
 
@@ -152,6 +153,9 @@ static void tracker_gap_event_handler(
 
     case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
         s_scanning = (param->scan_start_cmpl.status == ESP_BT_STATUS_SUCCESS);
+        if(s_scanning) {
+            dolphin_deed(DolphinDeedBleScan);
+        }
         break;
 
     case ESP_GAP_BLE_SCAN_RESULT_EVT:

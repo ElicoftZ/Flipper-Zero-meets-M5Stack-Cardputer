@@ -188,6 +188,15 @@ void subghz_scene_receiver_info_draw_widget(SubGhz* subghz) {
             FontSecondary,
             furi_string_get_cstr(modulation_str));
         subghz_protocol_decoder_base_get_string(subghz_txrx_get_decoder(subghz->txrx), text);
+
+        /* Rolling / hopping codes (KeeLoq, Security+ 2.0, etc.) change on every
+         * press, so a captured frame generally can't be replayed — warn here. */
+        SubGhzProtocolDecoderBase* info_decoder = subghz_txrx_get_decoder(subghz->txrx);
+        if(info_decoder && info_decoder->protocol &&
+           info_decoder->protocol->type == SubGhzProtocolTypeDynamic) {
+            furi_string_cat_str(text, "\nRolling code: won't replay");
+        }
+
         widget_add_string_multiline_element(
             subghz->widget, 0, 0, AlignLeft, AlignTop, FontSecondary, furi_string_get_cstr(text));
 

@@ -112,7 +112,16 @@ static char* totp_config_file_backup_i(Storage* storage) {
 static bool totp_open_config_file(Storage* storage, FlipperFormat** file) {
     FlipperFormat* fff_data_file = flipper_format_file_alloc(storage);
 
-    bool conf_file_exists = storage_common_stat(storage, CONFIG_FILE_PATH, NULL) == FSE_OK;
+    FileInfo conf_file_info;
+    bool conf_file_exists = storage_common_stat(storage, CONFIG_FILE_PATH, &conf_file_info) == FSE_OK;
+    if(conf_file_exists && conf_file_info.size == 0) {
+        /* An empty/corrupt config (e.g. from an interrupted first-run write)
+         * makes read_header fail with "Missing or incorrect header" on every
+         * launch and never recovers. Drop it so a fresh default is written. */
+        FURI_LOG_W(LOGGING_TAG, "Config file %s is empty; recreating", CONFIG_FILE_PATH);
+        storage_simply_remove(storage, CONFIG_FILE_PATH);
+        conf_file_exists = false;
+    }
     if(!conf_file_exists &&
        storage_common_stat(storage, EXT_PATH("authenticator"), NULL) == FSE_OK) {
         FURI_LOG_I(LOGGING_TAG, "Application catalog needs to be migrated");
@@ -143,7 +152,10 @@ static bool totp_open_config_file(Storage* storage, FlipperFormat** file) {
 
         FURI_LOG_D(LOGGING_TAG, "Config file %s is not found. Will create new.", CONFIG_FILE_PATH);
 
-        if(!flipper_format_file_open_new(fff_data_file, CONFIG_FILE_PATH)) {
+        /* open_always (CREATE_ALWAYS) instead of open_new (CREATE_NEW): the
+         * ESP32 storage layer's CREATE_NEW path can leave a 0-byte file, and
+         * we've already ensured the file is absent above, so overwrite is safe. */
+        if(!flipper_format_file_open_always(fff_data_file, CONFIG_FILE_PATH)) {
             totp_close_config_file(fff_data_file);
             FURI_LOG_E(LOGGING_TAG, "Error creating new file %s", CONFIG_FILE_PATH);
             return false;

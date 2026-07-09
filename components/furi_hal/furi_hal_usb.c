@@ -30,9 +30,17 @@ bool furi_hal_usb_set_config(FuriHalUsbInterface* new_if, void* ctx) {
     if(prev == &usb_hid && new_if != &usb_hid) {
         furi_hal_usb_hid_backend_stop();
     }
+    if(prev == &usb_hid_u2f && new_if != &usb_hid_u2f) {
+        furi_hal_usb_hid_u2f_backend_stop();
+    }
 
     if(new_if == &usb_hid) {
         if(!furi_hal_usb_hid_backend_start((const FuriHalUsbHidConfig*)ctx)) {
+            furi_hal_usb_current = prev;
+            return false;
+        }
+    } else if(new_if == &usb_hid_u2f) {
+        if(!furi_hal_usb_hid_u2f_backend_start()) {
             furi_hal_usb_current = prev;
             return false;
         }
@@ -65,6 +73,8 @@ bool furi_hal_usb_is_locked(void) {
 void furi_hal_usb_disable(void) {
     if(furi_hal_usb_current == &usb_hid) {
         furi_hal_usb_hid_backend_stop();
+    } else if(furi_hal_usb_current == &usb_hid_u2f) {
+        furi_hal_usb_hid_u2f_backend_stop();
     }
 }
 

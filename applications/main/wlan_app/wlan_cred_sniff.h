@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 // Anzahl der Slots im Lock-freien Cred-Ring. Fixed size, intern alloziert.
-#define WLAN_CRED_RING_SIZE 32
+#define WLAN_CRED_RING_SIZE 16
 // Maximale Länge der Text-Felder (host / user / secret), inkl. NUL.
 #define WLAN_CRED_STR_MAX 64
 #define WLAN_CRED_PROTO_MAX 8

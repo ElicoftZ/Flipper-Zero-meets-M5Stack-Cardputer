@@ -101,7 +101,7 @@ WeatherStationApp* weather_station_app_alloc() {
     subghz_devices_init();
 
     app->txrx->radio_device =
-        radio_device_loader_set(app->txrx->radio_device, SubGhzRadioDeviceTypeExternalCC1101);
+        ws_radio_device_loader_set(app->txrx->radio_device, SubGhzRadioDeviceTypeExternalCC1101);
 
     subghz_devices_reset(app->txrx->radio_device);
     subghz_devices_idle(app->txrx->radio_device);
@@ -124,7 +124,7 @@ void weather_station_app_free(WeatherStationApp* app) {
     furi_assert(app);
 
     subghz_devices_sleep(app->txrx->radio_device);
-    radio_device_loader_end(app->txrx->radio_device);
+    ws_radio_device_loader_end(app->txrx->radio_device);
 
     subghz_devices_deinit();
 

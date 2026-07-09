@@ -64,14 +64,29 @@ extern const GpioPin gpio_ext_pc0;
 extern const GpioPin gpio_ext_pc1;
 extern const GpioPin gpio_ext_pc3;
 extern const GpioPin gpio_ext_pb2;
-extern const GpioPin gpio_ext_pb3; /* CC1101 SCK  - GPIO2 */
-extern const GpioPin gpio_ext_pa4; /* CC1101 CSN  - GPIO1 */
-extern const GpioPin gpio_ext_pa6; /* CC1101 MISO - GPIO17 */
-extern const GpioPin gpio_ext_pa7; /* CC1101 MOSI - GPIO3 */
-extern const GpioPin gpio_cc1101_g0; /* CC1101 GDO0 - GPIO23 */
-extern const GpioPin gpio_nrf24_cs; /* NRF24 CSN -- T-Embed: GPIO44 */
+extern GpioPin gpio_ext_pb3; /* CC1101 SCK */
+extern GpioPin gpio_ext_pa4; /* CC1101 CSN */
+extern GpioPin gpio_ext_pa6; /* CC1101 MISO */
+extern GpioPin gpio_ext_pa7; /* CC1101 MOSI */
+extern GpioPin gpio_cc1101_g0; /* CC1101 GDO0 */
+extern GpioPin gpio_nrf24_cs; /* NRF24 CSN */
+extern GpioPin gpio_nrf24_ce; /* NRF24 CE */
+extern GpioPin gpio_ir_tx; /* IR TX */
+extern GpioPin gpio_ir_rx; /* IR RX */
 extern const GpioPin gpio_ibutton;
 extern const GpioPin gpio_speaker;
+
+/* User-controllable GPIO header, consumed by the "GPIO" app (manual control).
+ * The table itself lives in furi_hal_resources.c — edit it there to expose the
+ * pins your board breaks out. `.debug` pins are hidden from the app. */
+typedef struct {
+    const GpioPin* pin;
+    const char* name;
+    const bool debug;
+} GpioPinRecord;
+
+extern const GpioPinRecord gpio_pins[];
+extern const size_t gpio_pins_count;
 
 #ifdef __cplusplus
 }

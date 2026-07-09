@@ -43,6 +43,7 @@ typedef enum {
     DesktopLockMenuEventBruce,
     DesktopLockMenuEventMeshClients,
     DesktopLockMenuEventBigFapToggle,
+    DesktopLockMenuEventStatusLedToggle,
 
     DesktopMeshClientsEventPair,
     DesktopMeshClientsEventRemove,

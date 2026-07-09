@@ -158,27 +158,10 @@ static void totp_cli_handler(PipeSide* pipe, FuriString* args, void* context) {
 }
 
 TotpCliContext* totp_cli_register_command_handler(PluginState* plugin_state) {
-    CliRegistry* cli = furi_record_open(RECORD_CLI);
-    TotpCliContext* context = malloc(sizeof(TotpCliContext));
-    furi_check(context != NULL);
-    context->plugin_state = plugin_state;
-
-    context->plugin_api_resolver = composite_api_resolver_alloc();
-    composite_api_resolver_add(context->plugin_api_resolver, firmware_api_interface);
-    composite_api_resolver_add(context->plugin_api_resolver, application_api_interface);
-
-    cli_registry_add_command(
-        cli, TOTP_CLI_COMMAND_NAME, CliCommandFlagParallelSafe, totp_cli_handler, context);
-    furi_record_close(RECORD_CLI);
-    return context;
+    UNUSED(plugin_state);
+    return NULL;
 }
 
 void totp_cli_unregister_command_handler(TotpCliContext* context) {
-    CliRegistry* cli = furi_record_open(RECORD_CLI);
-    cli_registry_delete_command(cli, TOTP_CLI_COMMAND_NAME);
-
-    composite_api_resolver_free(context->plugin_api_resolver);
-
-    furi_record_close(RECORD_CLI);
-    free(context);
+    UNUSED(context);
 }

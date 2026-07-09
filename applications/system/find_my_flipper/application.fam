@@ -3,6 +3,7 @@ App(
     name="FindMy Flipper",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="findmy_main",
+    sources=["*.c", "scenes/*.c", "views/*.c", "!findmy_startup.c"],
     requires=["gui"],
     stack_size=2 * 1024,
     fap_icon="location_icon.png",

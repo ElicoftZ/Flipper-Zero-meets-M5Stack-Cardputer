@@ -368,7 +368,18 @@ void furi_hal_display_commit(const uint8_t* data, uint32_t size) {
     furi_hal_spi_bus_unlock();
 }
 
+/* ~90% of 255. The Cardputer-ADV panel's backlight boost driver only emits
+ * visible light above ~80-85% duty — below that the screen reads as black
+ * (confirmed on HW: Night Shift -10%/~230 is readable, -20%/~204 is black). The
+ * idle/dim floor must sit just above that threshold or idle looks off. Because
+ * this panel can't dim readably, this clamp intentionally applies to ALL backlight
+ * writes (idle + Night Shift + manual brightness) to keep a readable minimum.
+ * Deep sleep still cuts the backlight fully — its pin is gpio_hold'd LOW there,
+ * bypassing this path. */
+#define FURI_HAL_DISPLAY_BACKLIGHT_MIN 227 /* ~89% (86/88% still dipped dark on HW) */
+
 void furi_hal_display_set_backlight(uint8_t brightness) {
+    if(brightness < FURI_HAL_DISPLAY_BACKLIGHT_MIN) brightness = FURI_HAL_DISPLAY_BACKLIGHT_MIN;
     furi_hal_light_set(LightBacklight, brightness);
 }
 
@@ -377,6 +388,14 @@ void furi_hal_display_sleep(void) {
     furi_hal_spi_bus_lock();
     /* SLPIN: stop the panel's internal oscillator/booster to cut idle current */
     esp_lcd_panel_disp_on_off(panel_handle, false);
+    furi_hal_spi_bus_unlock();
+}
+
+void furi_hal_display_wake(void) {
+    if(!panel_handle) return;
+    furi_hal_spi_bus_lock();
+    /* SLPOUT: bring the panel back on after furi_hal_display_sleep() */
+    esp_lcd_panel_disp_on_off(panel_handle, true);
     furi_hal_spi_bus_unlock();
 }
 

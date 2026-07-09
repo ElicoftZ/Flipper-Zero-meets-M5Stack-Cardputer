@@ -1,5 +1,6 @@
 #include "gpio_items.h"
 
+#include <furi.h>
 #include <furi_hal_resources.h>
 
 struct GPIOItems {

@@ -6,6 +6,7 @@
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <furi.h>
+#include <dolphin/dolphin.h>
 #include <lwip/etharp.h>
 #include <lwip/ip4_addr.h>
 #include <lwip/netif.h>
@@ -875,6 +876,7 @@ bool wlan_netcut_apply(WlanNetcut* nc, const WlanDeviceRecord* devices, uint8_t 
 
     if(any_active) {
         start_worker(nc);
+        dolphin_deed(DolphinDeedWifiDeauth);
     } else {
         stop_worker(nc);
     }

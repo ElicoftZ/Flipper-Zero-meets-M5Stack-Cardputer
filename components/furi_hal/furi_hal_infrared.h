@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define INFRARED_MAX_FREQUENCY 1000000
+#define INFRARED_MAX_FREQUENCY 2000000
 #define INFRARED_MIN_FREQUENCY 10000
 
 typedef enum {
@@ -160,6 +160,13 @@ FuriHalInfraredTxPin furi_hal_infrared_detect_tx_output(void);
  * @param[in]   tx_pin  pin to be used for signal transmission.
  */
 void furi_hal_infrared_set_tx_output(FuriHalInfraredTxPin tx_pin);
+
+/** Get the currently-selected IR TX output.
+ *
+ * @return the active pin — FuriHalInfraredTxPinInternal for the built-in emitter,
+ *         or an external value when an M5Unit IR module is in use.
+ */
+FuriHalInfraredTxPin furi_hal_infrared_get_tx_output(void);
 
 #ifdef __cplusplus
 }

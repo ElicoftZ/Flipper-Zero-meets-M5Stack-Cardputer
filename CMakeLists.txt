@@ -41,5 +41,7 @@ else()
         "python='${_py}' lib='${_wifi_lib}'")
 endif()
 
+add_compile_options(-Wno-error)
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(furi_esp32)
