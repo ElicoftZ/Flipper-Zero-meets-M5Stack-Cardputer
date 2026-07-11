@@ -1,11 +1,40 @@
-# Beta Firmware — M5Stack Cardputer-ADV
+# Beta Firmware — M5Stack Cardputer Universal
 
-Beta build for the **M5Stack Cardputer-ADV** (ESP32-S3FN8, no PSRAM).
+Beta build for the **M5Stack Cardputer Standard and ADV** (ESP32-S3, 8 MB flash).
 
-**File:** `Flipper-cardputer_adv-merged.bin` — single merged image (bootloader +
+**File:** `Flipper-universal-merged.bin` — single merged image (bootloader +
 partition table + app), flash at offset **`0x0`**.
 
-Built: 2026-07-06
+Built: 2026-07-11
+
+## New in this build (2026-07-11)
+- **NFC over Grove — detection fixed** — the NFC HAL is now a pluggable I2C
+  backend layer that auto-detects a module on the Grove port: a **PN532 (@0x24)**
+  is recognized again (a regression that made it read "unavailable" is fixed),
+  with groundwork for the **ST25R3916** M5 NFC Universal Unit (@0x50). Shows
+  "No NFC module" only when nothing is attached.
+- **Flipper Mobile screen mirror — tearing fixed** — the phone's remote screen no
+  longer shows torn/partial frames. The stream now drops a frame while a send is
+  in flight instead of overwriting the buffer mid-transmit (the Cardputer's own
+  screen was never affected).
+- **Protocols settings opens reliably** — the Sub-GHz *Protocols* app no longer
+  freezes/crashes on open; its number keypad and popup are allocated lazily, so it
+  opens light and fast like Customize.
+- **Momentum-style launcher upgrade** — nine layouts adapted from
+  [Next-Flip/Momentum-Firmware](https://github.com/Next-Flip/Momentum-Firmware)
+  plus a framed 2x2 Grid, style-specific navigation, scrolling long labels, and
+  a real vertical launcher.
+- **Native menu animation** — every icon-bearing style uses Momentum's native
+  selected-item `IconAnimation` lifecycle and loops every available source frame.
+- **Official-style default** — List is first in Customize and is the fallback for
+  a fresh or invalid menu setting.
+- **Faster Customize startup** — idle-animation storage and manifest loading is
+  deferred until the selector opens, and the manifest is read only once.
+- **Protocols → Sub-GHz settings** — manage default, static, and hopper
+  frequencies; region bypass and extended bands include Momentum-style safety
+  confirmations and persist for startup.
+- **Readable battery percentage** — battery digits use a battery-only bold
+  overdraw and Customize changes refresh the status bar immediately.
 
 ## New in this build (2026-07-06)
 - **Recorder app (NEW)** — main-menu app. Records the built-in microphone (ES8311
@@ -65,7 +94,7 @@ Put the ESP32-S3 in the right mode and flash at offset `0x0`.
 
 **esptool (CLI):**
 ```
-esptool --chip esp32s3 -p <PORT> -b 460800 write_flash 0x0 Flipper-cardputer_adv-merged.bin
+esptool --chip esp32s3 -p <PORT> -b 460800 write_flash 0x0 Flipper-universal-merged.bin
 ```
 
 **Web flasher (no install, from Chrome/Edge):**
