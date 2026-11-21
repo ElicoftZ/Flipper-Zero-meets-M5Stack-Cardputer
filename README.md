@@ -2,6 +2,10 @@
 
 A port of the [Flipper Zero](https://flipperzero.one/) firmware to the **M5Stack Cardputer** and **M5Stack Cardputer ADV**. This project brings the Flipper Zero UI, services, and application framework to affordable ESP32-S3 hardware.
 
+## Feature request
+
+Fill the form in [https://tally.so/r/Z92aMz]
+
 ## Discord
 
 Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for support, releases, and announcements.
