@@ -344,7 +344,7 @@ static void text_input_view_draw_callback(Canvas* canvas, void* _model) {
     }
 }
 
-static void text_input_handle_up(TextInput* text_input, TextInputModel* model) {
+static void text_input_handle_left(TextInput* text_input, TextInputModel* model) {
     UNUSED(text_input);
     if(model->cursor_select) {
         model->clear_default_text = false;
@@ -359,7 +359,7 @@ static void text_input_handle_up(TextInput* text_input, TextInputModel* model) {
     }
 }
 
-static void text_input_handle_down(TextInput* text_input, TextInputModel* model) {
+static void text_input_handle_right(TextInput* text_input, TextInputModel* model) {
     UNUSED(text_input);
     if(model->cursor_select) {
         model->clear_default_text = false;
@@ -372,7 +372,7 @@ static void text_input_handle_down(TextInput* text_input, TextInputModel* model)
     }
 }
 
-static void text_input_handle_left(TextInput* text_input, TextInputModel* model) {
+static void text_input_handle_up(TextInput* text_input, TextInputModel* model) {
     UNUSED(text_input);
     if(model->cursor_select) {
         model->cursor_select = false;
@@ -385,7 +385,7 @@ static void text_input_handle_left(TextInput* text_input, TextInputModel* model)
     }
 }
 
-static void text_input_handle_right(TextInput* text_input, TextInputModel* model) {
+static void text_input_handle_down(TextInput* text_input, TextInputModel* model) {
     UNUSED(text_input);
     if(model->cursor_select) {
         model->cursor_select = false;
